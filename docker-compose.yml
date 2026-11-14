@@ -4,8 +4,8 @@
 #
 # Só o serviço `web` (Caddy) publica porta: ele serve as telas e encaminha /api
 # e /socket.io para a API. Banco, API e worker ficam na rede interna do Compose.
-# Nenhum serviço usa bind mount: a mesma definição funciona apontando o Docker
-# para a VM por SSH.
+# A única exceção é a pasta opcional de fotos (ARMAZENAMENTO=disco), montada via
+# bind: a mesma definição funciona apontando o Docker para a VM por SSH.
 #
 # Bônus 7.2, tudo pelo .env (ver .env.vm.example):
 #   - várias instâncias da API:  API_REPLICAS (padrão 2); o Caddy distribui entre elas
@@ -28,6 +28,9 @@ x-backend: &backend
       condition: service_healthy
       # com banco gerenciado o serviço `db` nem sobe (docker-compose.gerenciado.yml)
       required: false
+  # Modo ARMAZENAMENTO=disco: a pasta do host fica visível para API e seed.
+  volumes:
+    - ${PASTA_FOTOS_HOST:-./dados/fotos}:${PASTA_FOTOS:-/dados/fotos}
 
 services:
   db:

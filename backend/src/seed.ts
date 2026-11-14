@@ -119,7 +119,7 @@ async function principal(): Promise<void> {
   const comitente = ids[0];
 
   for (const [n, m] of LEILOES.entries()) {
-    // as fotos vão para o bucket antes da transação do banco
+    // as fotos vão para o destino configurado antes da transação do banco
     const chaves: string[] = [];
     for (let v = 0; v < 3; v++) {
       const chave = `${config.armazenamento.prefixo}/demo-${Date.now()}-${n}-${v}.png`;

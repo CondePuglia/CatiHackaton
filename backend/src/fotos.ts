@@ -63,8 +63,8 @@ export async function abrirFoto(id: number) {
     const objeto = await abrirObjeto(rows[0].chave);
     return { ...objeto, tipo: rows[0].tipo as string };
   } catch (erro) {
-    const nome = (erro as { name?: string })?.name;
-    if (nome === 'NoSuchKey' || nome === 'NotFound') throw naoEncontrado('Foto');
+    const { name, code } = erro as { name?: string; code?: string };
+    if (name === 'NoSuchKey' || name === 'NotFound' || code === 'ENOENT') throw naoEncontrado('Foto');
     throw erro;
   }
 }
