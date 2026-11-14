@@ -5,7 +5,7 @@ vivo e o leilão abre e fecha sozinho, com um vencedor.
 
 - **Endereço publicado:** a definir (VM da organização).
 - **Regras da API:** [docs/API.md](docs/API.md).
-- **Estado:** Núcleo completo. Nível 2 e Bônus ainda não começaram.
+- **Estado:** Núcleo completo. Nível 2 pronto no back-end; as telas do Nível 2 estão em aberto. Bônus não começou.
 
 ## Arquitetura
 

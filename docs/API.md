@@ -115,3 +115,55 @@ Os três últimos são finais. O banco recusa qualquer outra transição.
 | Antecedência do início | 30 segundos a 30 dias |
 | Duração | 1 minuto a 7 dias |
 | Senha | 8 caracteres ou mais |
+
+## Nível 2
+
+### Rotas HTTP
+
+| Método e rota | Login | O que faz |
+|---|---|---|
+| `GET /api/leiloes?q=&categoria=&status=` | não | RF21. `q` busca trecho do nome sem diferenciar acento nem maiúscula. Os três filtros se combinam. |
+| `GET /api/comitentes?q=` | não | RF22. Busca comitentes (quem já anunciou) pelo nome de exibição. Até 50. |
+| `GET /api/comitentes/:id?pagina=` | não | RF22. Perfil público: `comitente { id, nome, desde }`, `agendados`, `emAndamento`, `passados { leiloes, pagina, porPagina, total }`. |
+| `PATCH /api/leiloes/:id` | sim | RF23. Edição pelo comitente. `409 EDICAO_NAO_PERMITIDA` quando não pode. |
+| `POST /api/leiloes/:id/relistar` | sim | RF28. Novo leilão para o mesmo item; corpo igual ao de criar. `409 RELISTAGEM_NAO_PERMITIDA` ou `ITEM_JA_TEM_LEILAO_ATIVO`. |
+| `GET /api/eu/participacoes` | sim | RF27. Leilões em que dei lance, com `situacao`: `LIDER`, `SUPERADO`, `VENCEDOR` ou `NAO_VENCEU`. |
+
+O detalhe (`GET /api/leiloes/:id`) passa a trazer `eu.edicao` e `eu.podeRelistar`.
+
+### Política de edição (RF23)
+
+| Situação | `eu.edicao` | Corpo do `PATCH` | Cancelamento |
+|---|---|---|---|
+| Agendado, faltando mais de 30 min | `TUDO` | o mesmo de criar, completo | sim |
+| Agendado, faltando 30 min ou menos | `NADA` | — | sim |
+| Em andamento, sem lances | `ACRESCENTAR_DESCRICAO` | `{ acrescimoDescricao }` | sim |
+| Em andamento, com lances | `ACRESCENTAR_DESCRICAO` | `{ acrescimoDescricao }` | não |
+| Vendido, Encerrado sem lances, Cancelado | `NADA` | — | não |
+
+O prazo de 30 min é `EDICAO_BLOQUEIO_SEGUNDOS`. O complemento é anexado ao fim da descrição; o texto
+que já existia nunca muda.
+
+### Tempo real
+
+| Evento | Sentido | Dados | Resposta |
+|---|---|---|---|
+| `sala:entrar` | cliente → servidor | `{ leilaoId, papel? }` com `papel: "ESPECTADOR"` para só assistir | passa a trazer `presenca` |
+| `sala:papel` | cliente → servidor | `{ leilaoId, papel: "PARTICIPANTE" \| "ESPECTADOR" }` | `{ ok, eu: { papel } }` |
+| `sala:presenca` | servidor → sala | `{ leilaoId, participantes, espectadores }` | — |
+| `sala:item` | servidor → sala | `{ leilaoId }`: a descrição mudou, recarregar o detalhe | — |
+| `lance:superado` | servidor → usuário | `{ leilaoId, itemNome, valorCentavos }` | — |
+
+- RF25: o comitente é sempre espectador do próprio leilão. A contagem é de pessoas, não de abas.
+- RF26: `lance:superado` chega a todo socket do usuário superado, esteja ele na sala ou não.
+- RF24: ao reconectar, emitir `sala:entrar` de novo; a resposta traz o estado inteiro.
+
+### Novos motivos de recusa de lance
+
+| Motivo | Quando | Fica gravado na chave? |
+|---|---|---|
+| `SOMENTE_ESPECTADOR` | o socket está na sala como espectador | não |
+| `MUITO_RAPIDO` | RF13: menos de 500 ms desde o último lance avaliado do mesmo usuário | não |
+
+O limite de frequência é por usuário (não por leilão nem por aba), é conferido depois da
+idempotência — reenviar a mesma chave nunca é barrado — e usuários diferentes não se bloqueiam.

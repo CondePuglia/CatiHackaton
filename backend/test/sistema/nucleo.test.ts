@@ -143,6 +143,7 @@ test('RF09/RF15/RF17: a sala abre sozinha, mostra cada lance na hora, prorroga e
   assert.equal(baixo.motivo, 'VALOR_ABAIXO_DO_MINIMO');
   assert.equal(baixo.lanceMinimoCentavos, 105_00);
 
+  await dormir(520); // RF13: intervalo mínimo entre lances do mesmo usuário
   const r2 = await sb.lance(150_00);
   assert.equal(r2.aceito, true, JSON.stringify(r2));
   assert.equal(r2.meuNumero, 2);
@@ -154,6 +155,7 @@ test('RF09/RF15/RF17: a sala abre sozinha, mostra cada lance na hora, prorroga e
   }
   assert.ok(!salas.some((s) => s.estados.some((e) => e.precoAtualCentavos === 104_99)), 'a recusa não apareceu na sala');
 
+  await dormir(520);
   const lider = await sb.lance(900_00);
   assert.equal(lider.motivo, 'JA_E_LIDER');
 

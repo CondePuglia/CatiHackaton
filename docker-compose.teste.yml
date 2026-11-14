@@ -16,6 +16,9 @@ services:
       DATABASE_URL: postgres://leilao:${POSTGRES_PASSWORD:-leilao}@db:5432/leilao_dominio_teste
       S3_BUCKET: leilao-fotos-dominio-teste
       LOG_LEVEL: silent
+      # Os testes de domínio disparam lances em sequência; o limite de frequência
+      # (RF13) é ligado só no teste que o verifica.
+      LANCE_INTERVALO_MIN_MS: "0"
       # Os testes de sistema falam com a pilha em pé, pela mesma porta de entrada do navegador.
       URL_SISTEMA: ${URL_SISTEMA:-http://web}
       DATABASE_URL_SISTEMA: postgres://leilao:${POSTGRES_PASSWORD:-leilao}@db:5432/leilao
