@@ -1,7 +1,7 @@
 import { useEffect, useMemo, useState } from 'react';
 import { Link, useSearchParams } from 'react-router-dom';
 import { Button, Dropdown, Pagination, Search } from '@carbon/react';
-import { Add, ArrowRight } from '@carbon/icons-react';
+import { ArrowRight } from '@carbon/icons-react';
 import {
   api,
   reais,
@@ -12,6 +12,7 @@ import {
   type Resumo,
 } from './comuns';
 import {
+  AcaoAnunciar,
   Aviso,
   CartaoLeilao,
   EsqueletoCartao,
@@ -210,9 +211,7 @@ export function Listagem({ meus = false }: { meus?: boolean }) {
               <Button as="a" href="#catalogo" kind="primary" renderIcon={ArrowRight}>
                 Ver leilões ativos
               </Button>
-              <Button as={Link} to="/leiloes/novo" kind="tertiary" renderIcon={Add}>
-                Anunciar item
-              </Button>
+              <AcaoAnunciar kind="tertiary" />
             </div>
             <Estatisticas />
           </div>
@@ -247,11 +246,7 @@ export function Listagem({ meus = false }: { meus?: boolean }) {
                 : 'Em andamento primeiro; depois os que vão abrir. A lista se atualiza sozinha.'}
             </p>
           </div>
-          {meus && (
-            <Button as={Link} to="/leiloes/novo" kind="primary" renderIcon={Add}>
-              Anunciar item
-            </Button>
-          )}
+          {meus && <AcaoAnunciar kind="primary" />}
         </div>
 
         {!meus && (
@@ -324,9 +319,7 @@ export function Listagem({ meus = false }: { meus?: boolean }) {
             }
             acao={
               meus ? (
-                <Button as={Link} to="/leiloes/novo" kind="primary" renderIcon={Add}>
-                  Anunciar item
-                </Button>
+                <AcaoAnunciar kind="primary" />
               ) : (
                 <Button kind="tertiary" onClick={() => setBusca(new URLSearchParams(), { replace: true })}>
                   Limpar filtros

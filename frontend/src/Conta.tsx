@@ -2,14 +2,14 @@ import { useState, type FormEvent } from 'react';
 import { Link, Navigate, useNavigate, useSearchParams } from 'react-router-dom';
 import { Button, TextInput } from '@carbon/react';
 import { ArrowRight, Time, Trophy, User } from '@carbon/icons-react';
-import { api, ErroApi, useTitulo, useSessao } from './comuns';
+import { api, ErroApi, paraCentavos, useTitulo, useSessao, type Usuario } from './comuns';
 import { Aviso, Marca } from './ui';
 
 const DEMO = [
-  { email: 'carla@demo.dev', papel: 'Comitente dos seis leilões' },
-  { email: 'ana@demo.dev', papel: 'Compradora, conta antiga' },
-  { email: 'bruno@demo.dev', papel: 'Comprador' },
-  { email: 'caio@demo.dev', papel: 'Comprador, venceu um leilão' },
+  { email: 'carla@demo.dev', papel: 'Comitente habilitada' },
+  { email: 'ana@demo.dev', papel: 'Conta antiga, crédito alto' },
+  { email: 'bruno@demo.dev', papel: 'Crédito de R$ 2.700' },
+  { email: 'caio@demo.dev', papel: 'Crédito de R$ 120, entra como espectador' },
 ];
 
 function Formulario({ cadastro }: { cadastro: boolean }) {
@@ -22,6 +22,7 @@ function Formulario({ cadastro }: { cadastro: boolean }) {
   const [nome, setNome] = useState('');
   const [email, setEmail] = useState('');
   const [senha, setSenha] = useState('');
+  const [renda, setRenda] = useState('');
   const [erro, setErro] = useState<ErroApi | null>(null);
   const [enviando, setEnviando] = useState(false);
 
@@ -29,13 +30,21 @@ function Formulario({ cadastro }: { cadastro: boolean }) {
 
   async function enviar(e: FormEvent) {
     e.preventDefault();
+    const rendaMensalCentavos = cadastro ? paraCentavos(renda) : undefined;
+    if (cadastro && rendaMensalCentavos === null) {
+      setErro(
+        new ErroApi(422, 'VALIDACAO', 'Confira a renda mensal.', {
+          rendaMensalCentavos: 'Informe a renda mensal em reais, por exemplo 3.000,00.',
+        }),
+      );
+      return;
+    }
     setEnviando(true);
     setErro(null);
     try {
-      const r = await api<{ usuario: { id: number; nome: string; email: string } }>(
-        cadastro ? '/usuarios' : '/sessao',
-        { corpo: cadastro ? { nome, email, senha } : { email, senha } },
-      );
+      const r = await api<{ usuario: Usuario }>(cadastro ? '/usuarios' : '/sessao', {
+        corpo: cadastro ? { nome, email, senha, rendaMensalCentavos } : { email, senha },
+      });
       definir(r.usuario);
       navegar(volta, { replace: true });
     } catch (falha) {
@@ -88,7 +97,7 @@ function Formulario({ cadastro }: { cadastro: boolean }) {
           <h2 id="form-titulo">{cadastro ? 'Criar conta' : 'Entrar'}</h2>
           <p className="conta__apoio">
             {cadastro
-              ? 'Uma conta serve para comprar e para anunciar. Leva menos de um minuto.'
+              ? 'Informe nome, e-mail, senha e renda. A renda define seu limite de crédito e a pontuação para vender.'
               : 'Use a conta de demonstração ou entre com a sua.'}
           </p>
 
@@ -109,6 +118,19 @@ function Formulario({ cadastro }: { cadastro: boolean }) {
                 invalid={Boolean(campos.nome)}
                 invalidText={campos.nome}
                 helperText="É o nome que aparece no catálogo e no histórico."
+              />
+            )}
+            {cadastro && (
+              <TextInput
+                id="renda"
+                labelText="Renda mensal (R$)"
+                inputMode="decimal"
+                value={renda}
+                onChange={(e) => setRenda(e.target.value)}
+                placeholder="3.000,00"
+                invalid={Boolean(campos.rendaMensalCentavos)}
+                invalidText={campos.rendaMensalCentavos}
+                helperText="Usada para calcular sua pontuação e limite de crédito. Pode ser 0."
               />
             )}
             <TextInput

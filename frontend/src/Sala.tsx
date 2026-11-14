@@ -15,6 +15,7 @@ import {
   tempoPreciso,
   useAgora,
   useConfig,
+  useCredito,
   useTitulo,
   type EstadoSala,
   type Leilao,
@@ -22,7 +23,7 @@ import {
 import { Aviso, GaleriaFotos, Selo, VoltarLink } from './ui';
 import { TextoResultado } from './Detalhe';
 
-type Retorno = { tipo: 'ok' | 'erro' | 'info'; texto: string; detalhe?: string };
+type Retorno = { tipo: 'ok' | 'erro' | 'info'; texto: string; detalhe?: string; titulo?: string };
 
 /** Chave por tentativa (RF12); `randomUUID` exige contexto seguro, então há fallback. */
 function novaChave(): string {
@@ -48,9 +49,13 @@ function SkeletonSala() {
 export function Sala() {
   const leilaoId = Number(useParams().id);
   const { config } = useConfig();
+  const { credito, recarregar: recarregarCredito } = useCredito();
   const [item, setItem] = useState<Leilao | null>(null);
   const [estado, setEstado] = useState<EstadoSala | null>(null);
-  const [eu, setEu] = useState<{ papel: string; numero: number | null }>({ papel: '', numero: null });
+  const [eu, setEu] = useState<{ papel: string; numero: number | null; aviso?: string }>({
+    papel: '',
+    numero: null,
+  });
   const [conectado, setConectado] = useState(false);
   const [falha, setFalha] = useState('');
   const [valor, setValor] = useState('');
@@ -98,6 +103,8 @@ export function Sala() {
       acertarRelogio(novo.agora);
       // A versão desempata mensagens fora de ordem: estado velho é ignorado.
       setEstado((atual) => (atual && atual.versao > novo.versao ? atual : novo));
+      // RF31: ser superado ou liderar muda a reserva; reavalia a cada fotografia.
+      void recarregarCredito();
     };
 
     // Vale para a primeira conexão e para cada reconexão: entra de novo e recebe o estado inteiro.
@@ -129,11 +136,12 @@ export function Sala() {
     s.on('lance:superado', (d: { leilaoId: number; itemNome: string; valorCentavos: number }) => {
       if (d.leilaoId !== leilaoId) return;
       setSuperado(`Seu lance foi superado em ${d.itemNome}. O novo preço é ${reais(d.valorCentavos)}.`);
+      void recarregarCredito();
     });
     return () => {
       s.close();
     };
-  }, [leilaoId]);
+  }, [leilaoId, recarregarCredito]);
 
   const minimo = estado?.lanceMinimoCentavos ?? null;
   const aberto = estado?.status === 'EM_ANDAMENTO';
@@ -201,17 +209,26 @@ export function Sala() {
     }
     chave.current = novaChave(); // resposta definitiva: a próxima é outra tentativa
     if (resposta.aceito) {
-      setEu((x) => ({ ...x, numero: resposta.meuNumero }));
+      setEu((x) => ({ ...x, numero: resposta.meuNumero, aviso: undefined }));
+      void recarregarCredito();
       setRetorno({
         tipo: 'ok',
         texto: `Lance de ${reais(resposta.lance.valorCentavos)} aceito. Você é o líder.`,
         detalhe: resposta.prorrogou ? 'O término foi prorrogado em 2 minutos.' : undefined,
       });
     } else {
+      const detalhes = [
+        resposta.lanceMinimoCentavos ? `Lance mínimo atual: ${reais(resposta.lanceMinimoCentavos)}.` : '',
+        resposta.motivo === 'CREDITO_INSUFICIENTE' && credito
+          ? `Crédito disponível: ${reais(credito.disponivelCentavos)}.`
+          : '',
+      ].filter(Boolean);
+      if (resposta.motivo === 'CREDITO_INSUFICIENTE') void recarregarCredito();
       setRetorno({
         tipo: 'erro',
         texto: resposta.mensagem,
-        detalhe: resposta.lanceMinimoCentavos ? `Lance mínimo atual: ${reais(resposta.lanceMinimoCentavos)}.` : undefined,
+        titulo: resposta.motivo === 'CREDITO_INSUFICIENTE' ? 'Crédito insuficiente' : undefined,
+        detalhe: detalhes.length ? detalhes.join(' ') : undefined,
       });
     }
   }
@@ -228,7 +245,7 @@ export function Sala() {
     try {
       const r: any = await socket.current.timeout(4000).emitWithAck('sala:papel', { leilaoId, papel });
       if (r?.ok) {
-        setEu((atual) => ({ ...atual, papel: r.eu.papel }));
+        setEu((atual) => ({ ...atual, papel: r.eu.papel, aviso: undefined }));
         setRetorno({
           tipo: 'info',
           texto:
@@ -237,7 +254,17 @@ export function Sala() {
               : 'Agora você participa da disputa. O formulário de lance está liberado.',
         });
       } else {
-        setRetorno({ tipo: 'erro', texto: r?.erro?.mensagem ?? 'Não foi possível mudar seu papel na sala.' });
+        const codigo = r?.erro?.codigo;
+        if (codigo === 'CREDITO_INSUFICIENTE') void recarregarCredito();
+        setRetorno({
+          tipo: 'erro',
+          texto: r?.erro?.mensagem ?? 'Não foi possível mudar seu papel na sala.',
+          titulo: codigo === 'CREDITO_INSUFICIENTE' ? 'Crédito insuficiente' : undefined,
+          detalhe:
+            codigo === 'CREDITO_INSUFICIENTE' && credito
+              ? `Crédito disponível: ${reais(credito.disponivelCentavos)}.`
+              : undefined,
+        });
       }
     } catch {
       setRetorno({ tipo: 'erro', texto: 'Sem resposta do servidor. Tente de novo.' });
@@ -414,6 +441,16 @@ export function Sala() {
             </Aviso>
           )}
 
+          {eu.aviso && (
+            <Aviso
+              tipo="alerta"
+              titulo="Você entrou como espectador"
+              onFechar={() => setEu((atual) => ({ ...atual, aviso: undefined }))}
+            >
+              {eu.aviso}
+            </Aviso>
+          )}
+
           <TextoResultado leilao={{ resultado: estado.resultado, eu: { venci: estado.status === 'VENDIDO' && souLider } }} />
 
           {estado.status === 'AGENDADO' && (
@@ -453,7 +490,7 @@ export function Sala() {
             </div>
           )}
 
-          {aberto && !souComitente && espectador && (
+          {aberto && !souComitente && espectador && !eu.aviso && (
             <Aviso tipo="info" titulo="Modo espectador">
               Você acompanha preço, lances e presença em tempo real. Para dar lance, entre na disputa.
             </Aviso>
@@ -465,6 +502,17 @@ export function Sala() {
                 <h2>Seu lance</h2>
                 {minimo !== null && <span>Mínimo {reais(minimo)}</span>}
               </div>
+
+              {credito && (
+                <p
+                  className={`lance__credito${
+                    minimo !== null && credito.disponivelCentavos < minimo ? ' lance__credito--baixo' : ''
+                  }`}
+                >
+                  Crédito disponível: <strong>{reais(credito.disponivelCentavos)}</strong>
+                  {minimo !== null && credito.disponivelCentavos < minimo && ' — não cobre o mínimo atual.'}
+                </p>
+              )}
 
               <TextInput
                 id="valor"
@@ -510,14 +558,18 @@ export function Sala() {
                   ? 'Você lidera. Só precisa dar outro lance se alguém cobrir.'
                   : 'O lance é irrevogável: não existe desfazer. Quem chega primeiro tem prioridade.'}
               </p>
-
-              {retorno && (
-                <Aviso tipo={retorno.tipo} titulo={retorno.tipo === 'ok' ? 'Lance aceito' : undefined} onFechar={() => setRetorno(null)}>
-                  {retorno.texto}
-                  {retorno.detalhe ? ` ${retorno.detalhe}` : ''}
-                </Aviso>
-              )}
             </form>
+          )}
+
+          {retorno && (
+            <Aviso
+              tipo={retorno.tipo}
+              titulo={retorno.titulo ?? (retorno.tipo === 'ok' ? 'Lance aceito' : undefined)}
+              onFechar={() => setRetorno(null)}
+            >
+              {retorno.texto}
+              {retorno.detalhe ? ` ${retorno.detalhe}` : ''}
+            </Aviso>
           )}
 
           {estado.status !== 'EM_ANDAMENTO' && estado.status !== 'AGENDADO' && (

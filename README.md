@@ -5,7 +5,7 @@ vivo e o leilão abre e fecha sozinho, com um vencedor.
 
 - **Endereço publicado:** a definir (VM da organização).
 - **Regras da API:** [docs/API.md](docs/API.md).
-- **Estado:** Núcleo e Nível 2 completos no back-end e nas telas. Bônus completo no back-end (as telas do Bônus ainda não começaram).
+- **Estado:** Núcleo, Nível 2 e Bônus 7.1 completos no back-end e nas telas. Bônus 7.2 (nuvem/operação) não começou.
 
 ## Arquitetura
 
@@ -100,6 +100,5 @@ $C down -v
 
 ## O que ficou de fora
 
-- Bônus de nuvem/operação (banco gerenciado, HTTPS com domínio, deploy automatizado, várias instâncias, métricas e teste de carga).
-- Telas do Bônus (renda no cadastro, botão "Quero vender", crédito na sala).
+- Bônus 7.2 de nuvem/operação (banco gerenciado, HTTPS com domínio, deploy automatizado, várias instâncias, métricas e teste de carga).
 - Limpeza de fotos enviadas e nunca usadas em um leilão.

@@ -1,11 +1,12 @@
 import { useEffect, useState } from 'react';
 import { useParams } from 'react-router-dom';
-import { api, useTitulo, type Leilao } from './comuns';
+import { api, useSessao, useTitulo, type Leilao } from './comuns';
 import { Aviso, EstadoVazio, VoltarLink } from './ui';
 import { NovoLeilao } from './NovoLeilao';
 
 function Carregar({ acao }: { acao: 'editar' | 'relistar' }) {
   const { id } = useParams();
+  const { usuario } = useSessao();
   const [leilao, setLeilao] = useState<Leilao | null>(null);
   const [erro, setErro] = useState('');
 
@@ -43,6 +44,10 @@ function Carregar({ acao }: { acao: 'editar' | 'relistar' }) {
   const modo = leilao.eu?.edicao ?? 'NADA';
   const podeEditar = acao === 'editar' && modo !== 'NADA';
   const podeRelistar = acao === 'relistar' && Boolean(leilao.eu?.podeRelistar);
+
+  if (acao === 'relistar' && usuario && !usuario.comitente) {
+    return <NovoLeilao acao="relistar" leilao={leilao} />;
+  }
 
   if (acao === 'editar' && !podeEditar) {
     return (

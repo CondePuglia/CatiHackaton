@@ -17,7 +17,7 @@ import {
   type Config,
   type Leilao,
 } from './comuns';
-import { Aviso, Selo, VoltarLink } from './ui';
+import { Aviso, AcaoAnunciar, EstadoVazio, Selo, VoltarLink } from './ui';
 
 type Foto = { id: number; url: string };
 export type AcaoDoFormulario = 'criar' | 'editar' | 'relistar';
@@ -272,7 +272,11 @@ export function NovoLeilao({ acao = 'criar', leilao }: { acao?: AcaoDoFormulario
     } catch (falha) {
       const f = falha as ErroApi;
       setCampos(f.campos ?? {});
-      if (!f.campos || Object.keys(f.campos).length === 0) setErro(f.message);
+      if (f.codigo === 'NAO_HABILITADO') {
+        setErro('Sua conta ainda não está habilitada a vender. Use “Quero vender” no cabeçalho para ver sua pontuação.');
+      } else if (!f.campos || Object.keys(f.campos).length === 0) {
+        setErro(f.message);
+      }
     } finally {
       setSalvando(false);
     }
@@ -301,6 +305,26 @@ export function NovoLeilao({ acao = 'criar', leilao }: { acao?: AcaoDoFormulario
     } finally {
       setSalvando(false);
     }
+  }
+
+  if (acao !== 'editar' && usuario && !usuario.comitente) {
+    const podeHabilitar = usuario.pontuacao >= 50;
+    return (
+      <div className="pagina pagina--estreita">
+        <VoltarLink para={leilao ? `/leiloes/${leilao.id}` : '/'}>
+          {leilao ? 'Voltar ao leilão' : 'Catálogo'}
+        </VoltarLink>
+        <EstadoVazio
+          titulo={podeHabilitar ? 'Habilite-se como comitente' : 'Você ainda não pode vender'}
+          texto={
+            podeHabilitar
+              ? `Sua pontuação é ${usuario.pontuacao} de 100. Você já tem os 50 pontos necessários; use “Quero vender” para habilitar sua conta.`
+              : `Sua pontuação é ${usuario.pontuacao} de 100. São necessários 50 pontos para se habilitar como comitente. Dê lances e conclua compras para aumentar sua pontuação.`
+          }
+          acao={<AcaoAnunciar kind="primary" />}
+        />
+      </div>
+    );
   }
 
   if (erroConfig) {

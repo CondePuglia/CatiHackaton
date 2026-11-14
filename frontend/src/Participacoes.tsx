@@ -8,6 +8,7 @@ import {
   reais,
   tempoPreciso,
   useAgora,
+  useCredito,
   useTitulo,
   type Participacao,
   type SituacaoParticipacao,
@@ -37,6 +38,7 @@ export function MinhasParticipacoes() {
   const [situacao, setSituacao] = useState<'TODAS' | SituacaoParticipacao>('TODAS');
   const [pagina, setPagina] = useState(1);
   const agora = useAgora();
+  const { credito, recarregar: recarregarCredito } = useCredito();
 
   useEffect(() => {
     let vivo = true;
@@ -46,6 +48,7 @@ export function MinhasParticipacoes() {
           if (!vivo) return;
           setDados(r.participacoes);
           setErro('');
+          void recarregarCredito();
         })
         .catch((e) => vivo && setErro(e.message));
     void carregar();
@@ -54,7 +57,7 @@ export function MinhasParticipacoes() {
       vivo = false;
       clearInterval(t);
     };
-  }, []);
+  }, [recarregarCredito]);
 
   const filtradas = useMemo(
     () => (dados ?? []).filter((p) => situacao === 'TODAS' || p.situacao === situacao),
@@ -75,6 +78,16 @@ export function MinhasParticipacoes() {
         <div>
           <h1>Minhas participações</h1>
           <p>Leilões em que você deu lance, com a sua situação em cada um.</p>
+          {credito && (
+            <p className="participacoes__credito">
+              <span>
+                Reservado em lances: <strong>{reais(credito.reservadoCentavos)}</strong>
+              </span>
+              <span>
+                Disponível: <strong>{reais(credito.disponivelCentavos)}</strong>
+              </span>
+            </p>
+          )}
         </div>
         <Button as={Link} to="/" kind="tertiary" renderIcon={ArrowRight}>
           Ver catálogo

@@ -1,5 +1,5 @@
-import { useEffect, useState, type ReactNode } from 'react';
-import { Link, useLocation } from 'react-router-dom';
+import { useCallback, useEffect, useState, type ReactNode } from 'react';
+import { Link, useLocation, useNavigate } from 'react-router-dom';
 import {
   Button,
   Header,
@@ -10,6 +10,7 @@ import {
   HeaderName,
   HeaderNavigation,
   InlineNotification,
+  Modal,
   SideNav,
   SideNavItems,
   SideNavLink,
@@ -18,6 +19,7 @@ import {
   Tag,
 } from '@carbon/react';
 import {
+  Add,
   ArrowLeft,
   ArrowRight,
   Catalog,
@@ -28,6 +30,7 @@ import {
   Timer,
 } from '@carbon/icons-react';
 import {
+  api,
   dataHora,
   hora,
   infoStatus,
@@ -64,17 +67,120 @@ function RelogioServidor() {
   );
 }
 
+type ResultadoQueroVender = { pontuacao: number; minimo: number };
+
+/** RF30: transforma a conta em comitente quando a pontuação permite. */
+export function useQueroVender() {
+  const { usuario, definir } = useSessao();
+  const navegar = useNavigate();
+  const [carregando, setCarregando] = useState(false);
+  const [resultado, setResultado] = useState<ResultadoQueroVender | null>(null);
+  const [erro, setErro] = useState('');
+
+  const fechar = useCallback(() => {
+    setResultado(null);
+    setErro('');
+  }, []);
+
+  const habilitar = useCallback(async () => {
+    if (!usuario || carregando) return;
+    setCarregando(true);
+    setErro('');
+    try {
+      const r = await api<{ habilitado: boolean; pontuacao: number; minimo?: number }>('/eu/comitente', {
+        metodo: 'POST',
+        corpo: { habilitado: true },
+      });
+      if (r.habilitado) {
+        definir({ ...usuario, comitente: true, pontuacao: r.pontuacao });
+        navegar('/leiloes/novo');
+      } else {
+        setResultado({ pontuacao: r.pontuacao, minimo: r.minimo ?? 50 });
+      }
+    } catch (falha) {
+      setErro((falha as Error).message);
+    } finally {
+      setCarregando(false);
+    }
+  }, [usuario, definir, navegar, carregando]);
+
+  return { habilitar, carregando, resultado, erro, fechar };
+}
+
+export function ModalQueroVender({ estado }: { estado: ReturnType<typeof useQueroVender> }) {
+  return (
+    <Modal
+      open={Boolean(estado.resultado || estado.erro)}
+      modalHeading="Quero vender"
+      primaryButtonText="Entendi"
+      onRequestClose={estado.fechar}
+      onRequestSubmit={estado.fechar}
+    >
+      {estado.erro ? (
+        <p>{estado.erro}</p>
+      ) : (
+        <>
+          <p>
+            Sua pontuação é <strong>{estado.resultado?.pontuacao ?? 0} de 100</strong>.
+          </p>
+          <p>
+            São necessários <strong>{estado.resultado?.minimo ?? 50} pontos</strong> para se habilitar como comitente.
+            Dê lances e conclua compras para aumentar sua pontuação.
+          </p>
+        </>
+      )}
+    </Modal>
+  );
+}
+
+/** Botão de anúncio: link para comitentes, "Quero vender" para quem ainda não é. */
+export function AcaoAnunciar({
+  kind = 'primary',
+  size,
+}: {
+  kind?: 'primary' | 'tertiary' | 'ghost';
+  size?: 'sm' | 'md' | 'lg';
+}) {
+  const { usuario } = useSessao();
+  const queroVender = useQueroVender();
+
+  if (!usuario || usuario.comitente) {
+    return (
+      <Button as={Link} to="/leiloes/novo" kind={kind} size={size} renderIcon={Add}>
+        Anunciar item
+      </Button>
+    );
+  }
+
+  return (
+    <>
+      <Button
+        kind={kind}
+        size={size}
+        renderIcon={Add}
+        onClick={() => void queroVender.habilitar()}
+        disabled={queroVender.carregando}
+      >
+        {queroVender.carregando ? 'Verificando…' : 'Quero vender'}
+      </Button>
+      <ModalQueroVender estado={queroVender} />
+    </>
+  );
+}
+
 export function Cabecalho() {
   const { usuario, sair } = useSessao();
   const local = useLocation();
   const [menuAberto, setMenuAberto] = useState(false);
+  const queroVender = useQueroVender();
 
   useEffect(() => setMenuAberto(false), [local.pathname]);
 
   const item = ({ isActive }: { isActive: boolean }) => ({ isActive });
 
   return (
-    <Header aria-label="Cati Leilões" className="topo">
+    <>
+      <Header aria-label="Cati Leilões" className="topo">
       <HeaderMenuButton
         aria-label={menuAberto ? 'Fechar menu' : 'Abrir menu'}
         isActive={menuAberto}
@@ -110,13 +216,27 @@ export function Cabecalho() {
             >
               Participações
             </HeaderMenuItem>
-            <HeaderMenuItem
-              as={Link}
-              to="/leiloes/novo"
-              {...item({ isActive: local.pathname === '/leiloes/novo' })}
-            >
-              Anunciar item
-            </HeaderMenuItem>
+            {usuario.comitente ? (
+              <HeaderMenuItem
+                as={Link}
+                to="/leiloes/novo"
+                {...item({ isActive: local.pathname === '/leiloes/novo' })}
+              >
+                Anunciar item
+              </HeaderMenuItem>
+            ) : (
+              <HeaderMenuItem
+                as="button"
+                type="button"
+                onClick={() => {
+                  setMenuAberto(false);
+                  void queroVender.habilitar();
+                }}
+                disabled={queroVender.carregando}
+              >
+                {queroVender.carregando ? 'Verificando…' : 'Quero vender'}
+              </HeaderMenuItem>
+            )}
           </>
         )}
       </HeaderNavigation>
@@ -124,6 +244,9 @@ export function Cabecalho() {
         <RelogioServidor />
         {usuario ? (
           <>
+            <span className="topo__pontuacao" title="Pontuação da conta">
+              {usuario.pontuacao} pts
+            </span>
             <span className="topo__usuario" title={usuario.email}>
               {usuario.nome}
             </span>
@@ -174,14 +297,29 @@ export function Cabecalho() {
               >
                 Participações
               </SideNavLink>
-              <SideNavLink
-                as={Link}
-                to="/leiloes/novo"
-                isActive={local.pathname === '/leiloes/novo'}
-                onClick={() => setMenuAberto(false)}
-              >
-                Anunciar item
-              </SideNavLink>
+              {usuario.comitente ? (
+                <SideNavLink
+                  as={Link}
+                  to="/leiloes/novo"
+                  isActive={local.pathname === '/leiloes/novo'}
+                  onClick={() => setMenuAberto(false)}
+                >
+                  Anunciar item
+                </SideNavLink>
+              ) : (
+                <SideNavLink
+                  as="button"
+                  type="button"
+                  onClick={() => {
+                    setMenuAberto(false);
+                    void queroVender.habilitar();
+                  }}
+                  disabled={queroVender.carregando}
+                >
+                  {queroVender.carregando ? 'Verificando…' : 'Quero vender'}
+                </SideNavLink>
+              )}
+              <li className="topo__menu-pontuacao">Pontuação: {usuario.pontuacao} de 100</li>
             </>
           )}
           {!usuario && (
@@ -191,7 +329,9 @@ export function Cabecalho() {
           )}
         </SideNavItems>
       </SideNav>
-    </Header>
+      </Header>
+      <ModalQueroVender estado={queroVender} />
+    </>
   );
 }
 

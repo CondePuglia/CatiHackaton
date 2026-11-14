@@ -73,6 +73,15 @@ Uma casa de leilões que parece uma casa de leilões, não um dashboard genéric
 - **Relistar**: novo leilão para o mesmo item a partir de encerrado sem lances ou cancelado; o anterior fica no histórico.
 - A política de edição vem de `eu.edicao`; a tela não tenta adivinhar permissão.
 
+### Bônus 7.1 — pontuação, comitente e crédito
+
+- **Cadastro** pede a renda mensal em reais, convertida para centavos; a API devolve o erro no campo certo.
+- **Pontuação** (0–100) fica fixa no cabeçalho, ao lado do nome; no menu mobile aparece como "Pontuação: X de 100".
+- **Quero vender** substitui "Anunciar item" para quem ainda não é comitente. Com 50 pontos, habilita e abre o formulário; abaixo disso, um modal explica a pontuação e o mínimo.
+- **Crédito disponível** aparece no formulário de lance e é reavaliado a cada `sala:estado`, depois do meu lance e ao ser superado.
+- **Sem crédito**, a sala coloca a pessoa como espectadora e mostra o aviso do servidor; tentar virar participante exibe o motivo e o disponível, sem trocar o papel.
+- **Minhas participações** mostra o total reservado nos leilões em que o usuário lidera e o disponível.
+
 ### Conta
 
 - Split screen: painel escuro com a proposta e fatos do produto; formulário branco.
@@ -88,5 +97,5 @@ Uma casa de leilões que parece uma casa de leilões, não um dashboard genéric
 
 ## Fora de escopo desta entrega
 
-- Bônus: pontuação, habilitação de comitente, crédito com reserva e extras de nuvem/operação.
+- Bônus 7.2 de nuvem/operação: banco gerenciado, HTTPS com domínio, deploy automatizado, várias instâncias, métricas e teste de carga.
 - Tema escuro global; o escuro é reservado ao cabeçalho, ao painel ao vivo e ao rodapé.

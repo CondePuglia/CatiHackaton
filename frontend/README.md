@@ -64,9 +64,12 @@ frontend/
 - Nível 2: busca por nome (`q`), perfil de comitente, edição (tudo ou complemento), relistagem,
   espectador com presença e "Minhas participações". O aviso de lance superado usa o evento
   `lance:superado` e a descrição editada recarrega com `sala:item`.
+- Bônus 7.1: renda mensal no cadastro, pontuação no cabeçalho, "Quero vender" (habilitação com 50 pontos),
+  crédito disponível na sala, espectador automático por crédito e reserva indicada em "Minhas participações".
 
 ## Acessibilidade
 
 - Auditado com `axe-core` (WCAG 2.0 A/AA) em home, detalhe, sala, anúncio, conta, comitentes,
-  perfil, participações, edição, relistagem e modo espectador: **0 violações** em desktop e mobile.
+  perfil, participações, edição, relistagem, cadastro com renda, "Quero vender", crédito e modo
+  espectador: **0 violações** em desktop e mobile.
 - Foco visível, link "Pular para o conteúdo", labels Carbon, `aria-live` para o resumo da sala, contagem com `aria-label` e respeito a `prefers-reduced-motion`.

@@ -189,7 +189,22 @@ export type Config = {
 // ---------------------------------------------------------------------------
 // Sessão
 // ---------------------------------------------------------------------------
-export type Usuario = { id: number; nome: string; email: string };
+export type Usuario = {
+  id: number;
+  nome: string;
+  email: string;
+  /** RF30: já pode anunciar itens. */
+  comitente: boolean;
+  /** RF29: pontuação de 0 a 100. */
+  pontuacao: number;
+};
+
+export type Credito = {
+  pontuacao: number;
+  limiteCentavos: number;
+  reservadoCentavos: number;
+  disponivelCentavos: number;
+};
 type Sessao = {
   /** undefined = ainda carregando; null = visitante */
   usuario: Usuario | null | undefined;
@@ -300,6 +315,26 @@ export function useConfig() {
     };
   }, []);
   return { config, erro };
+}
+
+/** RF31: limite, reserva e disponível do usuário logado. */
+export function useCredito() {
+  const [credito, setCredito] = useState<Credito | null>(null);
+  const [erro, setErro] = useState('');
+  const recarregar = useCallback(
+    () =>
+      api<Credito>('/eu/credito')
+        .then((c) => {
+          setCredito(c);
+          setErro('');
+        })
+        .catch((e) => setErro(e.message)),
+    [],
+  );
+  useEffect(() => {
+    void recarregar();
+  }, [recarregar]);
+  return { credito, erro, recarregar };
 }
 
 /** Estado do sistema para o rodapé; não é decoração: é o /api/saude. */
