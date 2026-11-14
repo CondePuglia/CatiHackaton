@@ -1,6 +1,7 @@
 import type { FastifyInstance } from 'fastify';
 import { Server, type Socket } from 'socket.io';
 import { config } from './config.js';
+import { resumoDeCredito } from './credito.js';
 import type { EventoLeilao } from './eventos.js';
 import { CHAVE_VALIDA, MENSAGENS, darLance, lanceMinimoVigente, recusa, type ResultadoLance } from './lances.js';
 import { pool } from './db.js';
@@ -132,18 +133,37 @@ export function iniciarTempoReal(app: FastifyInstance) {
         const vinculo = await vinculoComLeilao(leilaoId, usuario.id);
         if (!vinculo.existe) return responder(falha('NAO_ENCONTRADO', 'Leilão não encontrado.'));
 
-        const papel: Papel = vinculo.souComitente
-          ? 'COMITENTE'
-          : dados.papel === 'ESPECTADOR'
-            ? 'ESPECTADOR'
-            : 'PARTICIPANTE';
         // Entra antes de ler o estado: nenhuma mudança cai no vão entre a
         // fotografia e a inscrição. Se chegar uma em dobro, a versão desempata.
         await socket.join(salaDoLeilao(leilaoId));
+        const estado = await estadoDaSala(leilaoId);
+        if (!estado) return responder(falha('NAO_ENCONTRADO', 'Leilão não encontrado.'));
+
+        // RF32: só participa quem tem crédito para cobrir o lance mínimo atual;
+        // os demais entram como espectadores. O comitente nunca é espectador.
+        // RF25: com crédito, a pessoa ainda pode escolher só assistir.
+        let papel: Papel;
+        let aviso: string | undefined;
+        if (vinculo.souComitente) {
+          papel = 'COMITENTE';
+        } else if (
+          estado.status === 'EM_ANDAMENTO' &&
+          estado.lanceMinimoCentavos !== null &&
+          (await resumoDeCredito(usuario.id)).disponivelCentavos < estado.lanceMinimoCentavos
+        ) {
+          papel = 'ESPECTADOR';
+          aviso = 'Seu crédito disponível é menor que o lance mínimo deste leilão. Você está apenas assistindo.';
+        } else {
+          papel = dados.papel === 'ESPECTADOR' ? 'ESPECTADOR' : 'PARTICIPANTE';
+        }
         socket.data.salas.set(leilaoId, papel);
 
-        const estado = await estadoDaSala(leilaoId);
-        responder({ ok: true, estado, eu: { papel, numero: vinculo.numero }, presenca: presenca(leilaoId) });
+        responder({
+          ok: true,
+          estado,
+          eu: { papel, numero: vinculo.numero, ...(aviso ? { aviso } : {}) },
+          presenca: presenca(leilaoId),
+        });
         avisarPresenca(leilaoId);
       }),
     );
@@ -160,6 +180,13 @@ export function iniciarTempoReal(app: FastifyInstance) {
         }
         if (dados.papel !== 'PARTICIPANTE' && dados.papel !== 'ESPECTADOR') {
           return responder(falha('DADOS_INVALIDOS', 'Papel inválido.'));
+        }
+        // RF32: não dá para virar participante sem crédito para o lance mínimo atual.
+        if (dados.papel === 'PARTICIPANTE') {
+          const minimo = await lanceMinimoVigente(leilaoId);
+          if (minimo !== null && (await resumoDeCredito(usuario.id)).disponivelCentavos < minimo) {
+            return responder(falha('CREDITO_INSUFICIENTE', MENSAGENS.CREDITO_INSUFICIENTE));
+          }
         }
         socket.data.salas.set(leilaoId, dados.papel);
         responder({ ok: true, eu: { papel: dados.papel } });

@@ -19,7 +19,7 @@ after(async () => {
 });
 
 const cadastro = (dados: Record<string, unknown>) =>
-  app.inject({ method: 'POST', url: '/api/usuarios', payload: dados });
+  app.inject({ method: 'POST', url: '/api/usuarios', payload: { rendaMensalCentavos: 5000_00, ...dados } });
 
 const cookieDe = (resposta: { cookies: Array<{ name: string; value: string }> }): string => {
   const c = resposta.cookies.find((x) => x.name === config.sessao.cookie);
@@ -62,6 +62,24 @@ test('RF01: dados inválidos voltam com o erro de cada campo', async () => {
   assert.equal(r.statusCode, 422);
   assert.equal(r.json().erro.codigo, 'VALIDACAO');
   assert.deepEqual(Object.keys(r.json().erro.campos).sort(), ['email', 'nome', 'senha']);
+});
+
+test('RF29: a renda mensal é obrigatória, inteira e não negativa', async () => {
+  const semRenda = await app.inject({
+    method: 'POST',
+    url: '/api/usuarios',
+    payload: { nome: 'Sem Renda', email: 'sem-renda@exemplo.com', senha: 'segredo-forte' },
+  });
+  assert.equal(semRenda.statusCode, 422);
+  assert.ok(semRenda.json().erro.campos.rendaMensalCentavos);
+
+  const negativa = await cadastro({ rendaMensalCentavos: -1 });
+  assert.equal(negativa.statusCode, 422);
+  assert.ok(negativa.json().erro.campos.rendaMensalCentavos);
+
+  const quebrada = await cadastro({ rendaMensalCentavos: 100.5 });
+  assert.equal(quebrada.statusCode, 422);
+  assert.ok(quebrada.json().erro.campos.rendaMensalCentavos);
 });
 
 test('a senha nunca é guardada em claro', async () => {

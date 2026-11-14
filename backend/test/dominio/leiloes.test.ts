@@ -13,6 +13,7 @@ import {
   dadosDeLeilao,
   emSegundos,
   encerrar,
+  habilitarComitente,
   linha,
   multipart,
   novasFotos,
@@ -34,6 +35,7 @@ before(async () => {
   app = await criarApp();
   comitente = await novoUsuario('Comitente');
   comprador = await novoUsuario('Comprador');
+  await habilitarComitente(comitente);
   cookieComitente = { [config.sessao.cookie]: await criarSessao(comitente.id) };
   cookieComprador = { [config.sessao.cookie]: await criarSessao(comprador.id) };
 });
@@ -140,7 +142,12 @@ test('RF05: criar leilão com todos os dados gera um leilão Agendado', async ()
   assert.equal(l.eu.podeCancelar, true);
 });
 
-test('RF03: qualquer usuário logado pode anunciar', async () => {
+test('RF03/RF30: só quem se habilitou como comitente pode anunciar', async () => {
+  const negado = await criar(await dadosDeLeilao(comprador), cookieComprador);
+  assert.equal(negado.statusCode, 403);
+  assert.equal(negado.json().erro.codigo, 'NAO_HABILITADO');
+
+  await habilitarComitente(comprador);
   const r = await criar(await dadosDeLeilao(comprador), cookieComprador);
   assert.equal(r.statusCode, 201);
   assert.equal(r.json().leilao.comitente.id, comprador.id);

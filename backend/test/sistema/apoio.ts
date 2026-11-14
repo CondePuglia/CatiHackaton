@@ -82,12 +82,21 @@ export class Cliente {
   usuario!: { id: number; nome: string; email: string };
   private sockets: Socket[] = [];
 
-  static async novo(nome = 'Pessoa'): Promise<Cliente> {
+  static async novo(nome = 'Pessoa', opcoes: { rendaCentavos?: number; comitente?: boolean } = {}): Promise<Cliente> {
     const c = new Cliente();
     const email = `${nome.toLowerCase().replace(/[^a-z0-9]+/g, '')}-${randomUUID()}@sistema.dev`;
-    const r = await c.req('POST', '/api/usuarios', { nome, email, senha: SENHA });
+    const r = await c.req('POST', '/api/usuarios', {
+      nome,
+      email,
+      senha: SENHA,
+      rendaMensalCentavos: opcoes.rendaCentavos ?? 100_000_00,
+    });
     assert.equal(r.status, 201, JSON.stringify(r.corpo));
     c.usuario = r.corpo.usuario;
+    if (opcoes.comitente ?? true) {
+      const h = await c.req('POST', '/api/eu/comitente');
+      assert.equal(h.status, 200, JSON.stringify(h.corpo));
+    }
     return c;
   }
 

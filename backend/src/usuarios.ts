@@ -2,6 +2,7 @@ import { hash, verify } from '@node-rs/argon2';
 import { config } from './config.js';
 import { pool, violouUnicidade } from './db.js';
 import { ErroApp } from './erros.js';
+import { pontuacaoDoUsuario } from './credito.js';
 import type { Usuario } from './sessoes.js';
 import { Validador, objeto } from './validacao.js';
 
@@ -16,7 +17,7 @@ function normalizarEmail(valor: unknown): string {
   return typeof valor === 'string' ? valor.trim().toLowerCase() : '';
 }
 
-/** RF01: cadastro com nome de exibição, e-mail e senha. */
+/** RF01: cadastro com nome de exibição, e-mail, senha e renda mensal (RF29). */
 export async function cadastrar(corpo: unknown): Promise<Usuario> {
   const dados = objeto(corpo);
   const v = new Validador();
@@ -27,16 +28,30 @@ export async function cadastrar(corpo: unknown): Promise<Usuario> {
   if (senha.length < config.limites.senha.min || senha.length > config.limites.senha.max) {
     v.erro('senha', `A senha precisa ter pelo menos ${config.limites.senha.min} caracteres.`);
   }
+  const rendaMensalCentavos = v.inteiro(
+    dados.rendaMensalCentavos,
+    'rendaMensalCentavos',
+    { min: 0, max: Number.MAX_SAFE_INTEGER },
+    'Informe a renda mensal em centavos (0 ou mais).',
+  );
   v.verificar();
 
   try {
     const { rows } = await pool.query(
-      `INSERT INTO usuarios (nome, email, senha_hash) VALUES ($1, $2, $3)
-       RETURNING id, nome, email, criado_em`,
-      [nome, email, await hash(senha)],
+      `INSERT INTO usuarios (nome, email, senha_hash, renda_mensal_centavos)
+       VALUES ($1, $2, $3, $4)
+       RETURNING id, nome, email, criado_em, renda_mensal_centavos, comitente_desde`,
+      [nome, email, await hash(senha), rendaMensalCentavos],
     );
     const r = rows[0];
-    return { id: r.id, nome: r.nome, email: r.email, criadoEm: r.criado_em };
+    return {
+      id: r.id,
+      nome: r.nome,
+      email: r.email,
+      criadoEm: r.criado_em,
+      rendaMensalCentavos: r.renda_mensal_centavos,
+      comitenteDesde: r.comitente_desde,
+    };
   } catch (erro) {
     if (violouUnicidade(erro, 'usuarios_email_unico')) {
       throw new ErroApp(409, 'EMAIL_JA_CADASTRADO', 'Este e-mail já tem uma conta.', {
@@ -53,7 +68,7 @@ export async function autenticar(corpo: unknown): Promise<Usuario> {
   const senha = typeof dados.senha === 'string' ? dados.senha : '';
 
   const { rows } = await pool.query(
-    'SELECT id, nome, email, senha_hash, criado_em FROM usuarios WHERE lower(email) = $1',
+    'SELECT id, nome, email, senha_hash, criado_em, renda_mensal_centavos, comitente_desde FROM usuarios WHERE lower(email) = $1',
     [email],
   );
   const r = rows[0];
@@ -61,12 +76,24 @@ export async function autenticar(corpo: unknown): Promise<Usuario> {
   if (!r || !confere) {
     throw new ErroApp(401, 'CREDENCIAIS_INVALIDAS', 'E-mail ou senha incorretos.');
   }
-  return { id: r.id, nome: r.nome, email: r.email, criadoEm: r.criado_em };
+  return {
+    id: r.id,
+    nome: r.nome,
+    email: r.email,
+    criadoEm: r.criado_em,
+    rendaMensalCentavos: r.renda_mensal_centavos ?? 0,
+    comitenteDesde: r.comitente_desde,
+  };
 }
 
-export const usuarioPublico = (u: Usuario) => ({
-  id: u.id,
-  nome: u.nome,
-  email: u.email,
-  criadoEm: u.criadoEm.toISOString(),
-});
+/** RF30: a visão pública do usuário traz se ele pode vender e a pontuação. */
+export async function usuarioPublico(u: Usuario) {
+  return {
+    id: u.id,
+    nome: u.nome,
+    email: u.email,
+    criadoEm: u.criadoEm.toISOString(),
+    comitente: u.comitenteDesde !== null,
+    pontuacao: await pontuacaoDoUsuario(u.id),
+  };
+}

@@ -7,6 +7,8 @@ export type Usuario = {
   nome: string;
   email: string;
   criadoEm: Date;
+  rendaMensalCentavos: number;
+  comitenteDesde: Date | null;
 };
 
 const hashDoToken = (token: string): string => createHash('sha256').update(token).digest('hex');
@@ -43,11 +45,20 @@ export async function usarSessao(token: string | null | undefined): Promise<Usua
       WHERE s.token_hash = $1
         AND s.expira_em > clock_timestamp()
         AND u.id = s.usuario_id
-  RETURNING u.id, u.nome, u.email, u.criado_em`,
+  RETURNING u.id, u.nome, u.email, u.criado_em, u.renda_mensal_centavos, u.comitente_desde`,
     [hashDoToken(token), config.sessao.inatividadeSegundos, config.sessao.maximoSegundos],
   );
   const r = rows[0];
-  return r ? { id: r.id, nome: r.nome, email: r.email, criadoEm: r.criado_em } : null;
+  return r
+    ? {
+        id: r.id,
+        nome: r.nome,
+        email: r.email,
+        criadoEm: r.criado_em,
+        rendaMensalCentavos: r.renda_mensal_centavos ?? 0,
+        comitenteDesde: r.comitente_desde,
+      }
+    : null;
 }
 
 export async function encerrarSessao(token: string | null | undefined): Promise<void> {

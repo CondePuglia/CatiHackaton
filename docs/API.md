@@ -23,17 +23,19 @@ Status HTTP usados: 200, 201, 204, 400 (requisição malformada), 401 (sem sess�
 |---|---|---|
 | `GET /api/saude` | não | Diz se está no ar e a hora do servidor. |
 | `GET /api/config` | não | Categorias, limites, tabela de incrementos e regra de prorrogação em vigor. |
-| `POST /api/usuarios` | não | Cadastro: `nome`, `email`, `senha`. Já abre a sessão. `409 EMAIL_JA_CADASTRADO`. |
+| `POST /api/usuarios` | não | Cadastro: `nome`, `email`, `senha`, `rendaMensalCentavos` (inteiro ≥ 0). Já abre a sessão. `409 EMAIL_JA_CADASTRADO`. |
 | `POST /api/sessao` | não | Login: `email`, `senha`. `401 CREDENCIAIS_INVALIDAS`. |
 | `DELETE /api/sessao` | — | Logout: apaga a sessão no servidor. |
 | `GET /api/eu` | sim | Usuário da sessão. |
 | `POST /api/fotos` | sim | Envia uma foto no campo `arquivo`. Devolve `{ foto: { id, url } }`. |
 | `GET /api/fotos/:id` | não | Bytes da foto, vindos do bucket. |
 | `GET /api/leiloes` | não | Listagem. `?status=` (lista separada por vírgula ou `TODOS`; padrão: agendados e em andamento), `?categoria=`, `?pagina=`. |
-| `POST /api/leiloes` | sim | Cria item e leilão: `nome`, `descricao`, `categoria`, `fotoIds[]`, `precoInicialCentavos`, `inicioEm`, `duracaoSegundos`. |
+| `POST /api/leiloes` | sim | Cria item e leilão: `nome`, `descricao`, `categoria`, `fotoIds[]`, `precoInicialCentavos`, `inicioEm`, `duracaoSegundos`. Só quem se habilitou como comitente (`403 NAO_HABILITADO`). |
 | `GET /api/leiloes/:id` | não | Detalhe. Com login, traz `eu` (sou comitente, sou líder, posso cancelar, venci). |
 | `POST /api/leiloes/:id/cancelar` | sim | Só o comitente. `409 CANCELAMENTO_NAO_PERMITIDO` se houver lances ou já tiver terminado. |
 | `GET /api/eu/leiloes` | sim | Leilões que eu anunciei, em qualquer estado. |
+| `POST /api/eu/comitente` | sim | Habilita o usuário a vender se a pontuação for ≥ 50; senão devolve `{ habilitado: false, pontuacao, minimo }`. |
+| `GET /api/eu/credito` | sim | `{ pontuacao, limiteCentavos, reservadoCentavos, disponivelCentavos }`. |
 
 ## Tempo real (Socket.IO)
 
@@ -41,7 +43,7 @@ A conexão só é aceita com sessão válida (`connect_error: NAO_AUTENTICADO`).
 
 | Evento | Sentido | Dados | Resposta (ack) |
 |---|---|---|---|
-| `sala:entrar` | cliente → servidor | `{ leilaoId }` | `{ ok, estado, eu: { papel, numero } }` |
+| `sala:entrar` | cliente → servidor | `{ leilaoId }` | `{ ok, estado, eu: { papel, numero, aviso? } }` — `papel` é `COMITENTE`, `PARTICIPANTE` ou `ESPECTADOR` (sem crédito para o lance mínimo, entra assistindo e recebe `aviso`). |
 | `sala:sair` | cliente → servidor | `{ leilaoId }` | `{ ok }` |
 | `lance:enviar` | cliente → servidor | `{ leilaoId, valorCentavos, chave }` | resultado do lance |
 | `sala:estado` | servidor → sala | fotografia completa da sala | — |
@@ -56,10 +58,11 @@ mudança; a tela ignora estado com versão menor que a que já tem.
 O lance só existe pelo evento `lance:enviar`, vindo de um socket que entrou na sala. É aceito se, no
 momento em que é processado:
 
-1. a sessão ainda é válida (conferida no banco a cada lance) e o autor está na sala;
+1. a sessão ainda é válida (conferida no banco a cada lance) e o autor está na sala como participante;
 2. o leilão está Em andamento e o horário de término não passou, pelo relógio do servidor;
 3. o autor não é o comitente nem o líder atual;
-4. o valor é maior ou igual ao lance mínimo vigente naquele instante.
+4. o valor é maior ou igual ao lance mínimo vigente naquele instante;
+5. o valor cabe no crédito disponível do autor (limite menos a reserva dos outros leilões que ele lidera).
 
 `chave` é gerada no navegador, uma por tentativa (8 a 64 caracteres `A-Z a-z 0-9 _ -`). Reenviar a mesma
 chave devolve a resposta original com `reenvio: true` e nunca cria outro lance.
@@ -79,6 +82,7 @@ Resposta recusada: `{ aceito: false, motivo, mensagem, lanceMinimoCentavos, reen
 | `COMITENTE_NAO_PODE_DAR_LANCE` | autor é o comitente | sim |
 | `JA_E_LIDER` | autor já lidera | sim |
 | `VALOR_ABAIXO_DO_MINIMO` | valor menor que o mínimo vigente | sim |
+| `CREDITO_INSUFICIENTE` | valor acima do crédito disponível | sim |
 | `CHAVE_REUTILIZADA` | mesma chave com outro leilão ou valor | não |
 | `ERRO_INTERNO` | falha ao confirmar; o cliente reenvia a mesma chave | não |
 
@@ -103,6 +107,17 @@ limite de 30 minutos de prorrogação acumulada. Os dois valores são configurá
 `AGENDADO` → `EM_ANDAMENTO` (chega o início) → `VENDIDO` (término com lances) ou `ENCERRADO_SEM_LANCES`
 (término sem lances). `AGENDADO` → `CANCELADO` e `EM_ANDAMENTO` sem lances → `CANCELADO`, pelo comitente.
 Os três últimos são finais. O banco recusa qualquer outra transição.
+
+## Pontuação, comitente e crédito (Bônus)
+
+A pontuação vai de 0 a 100: `50·min(renda/10.000,1) + 20·min(dias/180,1) + 15·min(compras/10,1) +
+15·min(total/20.000,1)`, com renda e total em reais, calculada em centavos e arredondada no fim.
+Compras são os leilões `VENDIDO` em que o usuário é o líder; o total é a soma dos preços desses leilões.
+
+Com pontuação ≥ 50 o usuário se habilita a vender (`POST /api/eu/comitente`). O limite de crédito é
+`renda mensal × 6 × pontuação ÷ 100`; a reserva é a soma dos preços atuais dos leilões `EM_ANDAMENTO`
+em que ele é líder, calculada na hora. Um lance é recusado (`CREDITO_INSUFICIENTE`) quando o valor
+ultrapassa o disponível; ser superado ou o leilão terminar libera a reserva sozinho.
 
 ## Limites padrão (todos configuráveis no `.env`)
 

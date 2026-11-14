@@ -85,6 +85,9 @@ export async function editarLeilao(usuario: Usuario, leilaoId: number, corpo: un
  * parcial garante que o item nunca tenha dois leilões ativos.
  */
 export async function relistarLeilao(usuario: Usuario, leilaoId: number, corpo: unknown): Promise<number> {
+  if (!usuario.comitenteDesde) {
+    throw proibido('Habilite-se como comitente para anunciar.', 'NAO_HABILITADO');
+  }
   const dados = objeto(corpo);
   const agora = await agoraDoBanco();
   const v = new Validador();

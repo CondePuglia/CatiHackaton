@@ -1,4 +1,5 @@
 import { config } from './config.js';
+import { resumoDeCredito } from './credito.js';
 import { agoraDoBanco, pool } from './db.js';
 import { publicar } from './eventos.js';
 import { lanceMinimo, novoTermino } from './regras.js';
@@ -14,6 +15,7 @@ export type Motivo =
   | 'COMITENTE_NAO_PODE_DAR_LANCE'
   | 'JA_E_LIDER'
   | 'VALOR_ABAIXO_DO_MINIMO'
+  | 'CREDITO_INSUFICIENTE'
   | 'CHAVE_REUTILIZADA'
   | 'MUITO_RAPIDO'
   | 'ERRO_INTERNO';
@@ -29,6 +31,7 @@ export const MENSAGENS: Record<Motivo, string> = {
   COMITENTE_NAO_PODE_DAR_LANCE: 'O comitente não pode dar lance no próprio leilão.',
   JA_E_LIDER: 'Você já é o líder deste leilão.',
   VALOR_ABAIXO_DO_MINIMO: 'O valor está abaixo do lance mínimo atual.',
+  CREDITO_INSUFICIENTE: 'Seu crédito disponível não cobre este lance.',
   CHAVE_REUTILIZADA: 'Esta tentativa de lance já foi usada com outros dados.',
   MUITO_RAPIDO: 'Aguarde um instante antes de dar outro lance.',
   ERRO_INTERNO: 'Não foi possível confirmar o lance. Tente de novo.',
@@ -84,13 +87,19 @@ export const CHAVE_VALIDA = /^[A-Za-z0-9_-]{8,64}$/;
  *     resposta original e não processa nada. O INSERT ... ON CONFLICT espera um
  *     envio simultâneo da mesma chave terminar, então clique duplo nunca vira
  *     dois lances.
+ *  1b. Trava a linha do USUÁRIO (FOR NO KEY UPDATE). É a mesma trava do limite
+ *     de frequência (RF13) e também serializa o crédito (RF31): dois lances
+ *     simultâneos do mesmo usuário em leilões diferentes formam fila aqui, então
+ *     a reserva nunca é lida duas vezes com o mesmo saldo.
  *  2. Trava a linha do leilão com SELECT ... FOR UPDATE (RF11). Lances
  *     simultâneos no mesmo leilão formam fila aqui: quem chega primeiro é
  *     processado primeiro, e o seguinte já enxerga o estado deixado por ele.
- *     Leilões diferentes não se bloqueiam.
+ *     Leilões diferentes não se bloqueiam. A ordem das travas é sempre
+ *     usuário, depois leilão.
  *  3. Lê o relógio do banco DEPOIS de obter a trava (RF16): vale a hora em que
  *     o lance é processado, não a hora em que o usuário clicou.
- *  4. Confere as regras do RF10 contra o estado de agora.
+ *  4. Confere as regras do RF10 contra o estado de agora, inclusive o crédito
+ *     disponível (RF31).
  *  5. Grava lance, novo preço, líder e término (RF15), guarda a resposta e
  *     publica o evento. O evento só sai no COMMIT, então a sala nunca vê um
  *     lance que não foi gravado.
@@ -134,9 +143,11 @@ export async function darLance(e: EntradaLance): Promise<ResultadoLance> {
       return { ...(original.resultado as ResultadoLance), reenvio: true };
     }
 
-    // 1b. limite de frequência (RF13) ---------------------------------------
+    // 1b. trava do usuário e limite de frequência (RF13) -------------------
     // Vem DEPOIS da idempotência: reenviar a mesma tentativa nunca é punido.
     // A trava é na linha do próprio usuário: pessoas diferentes não se bloqueiam.
+    // A MESMA trava também serializa os lances do usuário para o crédito (RF31);
+    // por isso a ordem é sempre usuário, depois leilão.
     const autor = await c.query('SELECT ultimo_lance_em FROM usuarios WHERE id = $1 FOR NO KEY UPDATE', [e.usuarioId]);
     const instante = await agoraDoBanco(c);
     const ultimo = autor.rows[0]?.ultimo_lance_em as Date | null | undefined;
@@ -176,6 +187,13 @@ export async function darLance(e: EntradaLance): Promise<ResultadoLance> {
     else if (l.comitente_id === e.usuarioId) motivo = 'COMITENTE_NAO_PODE_DAR_LANCE';
     else if (l.lider_id === e.usuarioId) motivo = 'JA_E_LIDER';
     else if (e.valorCentavos < minimo) motivo = 'VALOR_ABAIXO_DO_MINIMO';
+
+    // RF31: o crédito só é conferido depois das regras acima, para não gastar
+    // uma consulta em lances que já seriam recusados. O usuário já está travado.
+    if (!motivo && l.comitente_id !== e.usuarioId) {
+      const credito = await resumoDeCredito(e.usuarioId, c);
+      if (e.valorCentavos > credito.disponivelCentavos) motivo = 'CREDITO_INSUFICIENTE';
+    }
 
     if (motivo) {
       const recusado = recusa(motivo, emAndamento ? minimo : null);

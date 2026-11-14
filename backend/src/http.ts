@@ -2,6 +2,7 @@ import cookie from '@fastify/cookie';
 import multipart from '@fastify/multipart';
 import Fastify, { type FastifyInstance, type FastifyReply, type FastifyRequest } from 'fastify';
 import { CATEGORIAS, config } from './config.js';
+import { habilitarComitente, resumoDeCredito } from './credito.js';
 import { agoraDoBanco } from './db.js';
 import { ErroApp, naoAutenticado, naoEncontrado } from './erros.js';
 import { abrirFoto, enviarFoto } from './fotos.js';
@@ -137,13 +138,13 @@ export async function criarApp(): Promise<FastifyInstance> {
   app.post('/api/usuarios', async (req, reply) => {
     const usuario = await cadastrar(req.body);
     gravarCookie(reply, await criarSessao(usuario.id));
-    return reply.status(201).send({ usuario: usuarioPublico(usuario) });
+    return reply.status(201).send({ usuario: await usuarioPublico(usuario) });
   });
 
   app.post('/api/sessao', async (req, reply) => {
     const usuario = await autenticar(req.body);
     gravarCookie(reply, await criarSessao(usuario.id));
-    return reply.send({ usuario: usuarioPublico(usuario) });
+    return reply.send({ usuario: await usuarioPublico(usuario) });
   });
 
   app.delete('/api/sessao', async (req, reply) => {
@@ -152,7 +153,37 @@ export async function criarApp(): Promise<FastifyInstance> {
     return reply.status(204).send();
   });
 
-  app.get('/api/eu', async (req) => ({ usuario: usuarioPublico(await exigirLogin(req)) }));
+  app.get('/api/eu', async (req) => ({ usuario: await usuarioPublico(await exigirLogin(req)) }));
+
+  // -------------------------------------------------------------------------
+  // Bônus (RF30/RF32): comitente e crédito
+  // -------------------------------------------------------------------------
+
+  /** RF30: habilita o usuário a vender quando a pontuação permite. */
+  app.post('/api/eu/comitente', async (req) => {
+    const usuario = await exigirLogin(req);
+    const r = await habilitarComitente(usuario.id);
+    if (!r.habilitado) {
+      return {
+        habilitado: false,
+        pontuacao: r.pontuacao,
+        minimo: 50,
+      };
+    }
+    return { habilitado: true, pontuacao: r.pontuacao, comitenteDesde: r.comitenteDesde };
+  });
+
+  /** RF31/RF32: quanto de crédito o usuário tem para dar lances. */
+  app.get('/api/eu/credito', async (req) => {
+    const usuario = await exigirLogin(req);
+    const c = await resumoDeCredito(usuario.id);
+    return {
+      pontuacao: c.pontuacao,
+      limiteCentavos: c.limiteCentavos,
+      reservadoCentavos: c.reservadoCentavos,
+      disponivelCentavos: c.disponivelCentavos,
+    };
+  });
 
   // -------------------------------------------------------------------------
   // Fotos (RF07)
