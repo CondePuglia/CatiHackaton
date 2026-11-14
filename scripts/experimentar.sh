@@ -1,5 +1,5 @@
 #!/usr/bin/env bash
-# Teste de fumaça do Núcleo · Parte 1, só com curl.
+# Teste de fumaça do Núcleo, só com curl.
 #
 #   ./scripts/experimentar.sh                      # sistema em http://localhost:8080
 #   ./scripts/experimentar.sh http://IP:PORTA      # sistema em outro endereço
