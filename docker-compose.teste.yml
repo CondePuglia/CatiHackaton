@@ -1,0 +1,24 @@
+# Acrescenta o contêiner que roda os testes. Uso:
+#
+#   docker compose -p leilao-teste --env-file .env.teste \
+#     -f docker-compose.yml -f docker-compose.teste.yml run --rm testes npm run test:dominio
+
+services:
+  testes:
+    build:
+      context: ./backend
+      target: dev
+    profiles: ["testes"]
+    env_file: ${ARQUIVO_ENV:-.env}
+    environment:
+      # Os testes de domínio apagam dados: usam um banco próprio, separado do
+      # banco que a API e o worker da pilha de teste estão usando.
+      DATABASE_URL: postgres://leilao:${POSTGRES_PASSWORD:-leilao}@db:5432/leilao_dominio_teste
+      S3_BUCKET: leilao-fotos-dominio-teste
+      LOG_LEVEL: silent
+      # Os testes de sistema falam com a pilha em pé, pela mesma porta de entrada do navegador.
+      URL_SISTEMA: ${URL_SISTEMA:-http://web}
+      DATABASE_URL_SISTEMA: postgres://leilao:${POSTGRES_PASSWORD:-leilao}@db:5432/leilao
+    depends_on:
+      db:
+        condition: service_healthy
