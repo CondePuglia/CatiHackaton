@@ -10,8 +10,22 @@ pg.types.setTypeParser(pg.types.builtins.INT8, (valor: string) => {
   return n;
 });
 
-export const pool = new pg.Pool({
+function tls(): pg.ClientConfig['ssl'] {
+  const modo = config.bancoSsl.toLowerCase();
+  if (modo === '' || modo === 'false' || modo === 'nao') return undefined;
+  if (modo === 'sem-verificar') return { rejectUnauthorized: false };
+  if (modo === 'verificar' || modo === 'true') return true;
+  throw new Error(`Variável de ambiente DB_SSL inválida: "${config.bancoSsl}" (use verificar ou sem-verificar)`);
+}
+
+/** Como chegar ao banco: vale para o pool e para a conexão de escuta (eventos.ts). */
+export const conexaoDoBanco: pg.ClientConfig = {
   connectionString: config.databaseUrl,
+  ...(tls() !== undefined ? { ssl: tls() } : {}),
+};
+
+export const pool = new pg.Pool({
+  ...conexaoDoBanco,
   max: config.conexoesBanco,
 });
 

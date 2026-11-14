@@ -31,8 +31,14 @@ curl -s -o /dev/null -w 'HTTP %{http_code}\n' "$BASE/api/eu"
 email="teste-$(date +%s)-$RANDOM@exemplo.com"
 passo "3. Cadastro ($email) — a sessão vem em cookie HttpOnly"
 curl -fsS -c "$JAR" -H 'content-type: application/json' \
-  -d "{\"nome\":\"Teste da VM\",\"email\":\"$email\",\"senha\":\"senha-de-teste\"}" \
+  -d "{\"nome\":\"Teste da VM\",\"email\":\"$email\",\"senha\":\"senha-de-teste\",\"rendaMensalCentavos\":1000000}" \
   "$BASE/api/usuarios"
+echo
+
+passo "3b. Quero vender: renda de R\$ 10.000 dá 50 pontos e habilita na hora (RF30)"
+curl -fsS -b "$JAR" -X POST "$BASE/api/eu/comitente"
+echo
+curl -fsS -b "$JAR" "$BASE/api/eu/credito"
 echo
 
 passo "4. Três fotos enviadas (vão para o bucket, não para o banco)"

@@ -1,6 +1,5 @@
 import pg from 'pg';
-import { config } from './config.js';
-import type { Conexao } from './db.js';
+import { conexaoDoBanco, type Conexao } from './db.js';
 
 /**
  * Barramento de eventos em cima do próprio Postgres (LISTEN/NOTIFY).
@@ -15,7 +14,8 @@ import type { Conexao } from './db.js';
  */
 export const CANAL = 'leilao_eventos';
 
-export type TipoEvento = 'ABERTO' | 'LANCE' | 'ENCERRADO' | 'CANCELADO' | 'EDITADO';
+/** PRESENCA não muda o leilão: só avisa que alguém entrou, saiu ou trocou de papel na sala (RF25). */
+export type TipoEvento = 'ABERTO' | 'LANCE' | 'ENCERRADO' | 'CANCELADO' | 'EDITADO' | 'PRESENCA';
 
 export type EventoLeilao = {
   leilaoId: number;
@@ -54,7 +54,7 @@ export function escutarEventos(opcoes: Opcoes): { pronto: Promise<void>; parar: 
 
   async function conectar(): Promise<void> {
     if (parado) return;
-    const cliente = new pg.Client({ connectionString: config.databaseUrl, keepAlive: true });
+    const cliente = new pg.Client({ ...conexaoDoBanco, keepAlive: true });
     let morto = false;
     const caiu = (motivo: string) => {
       if (morto) return;

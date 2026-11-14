@@ -16,7 +16,8 @@
     "seed": "node dist/seed.js",
     "test:unidade": "node --import tsx --test --test-reporter=spec test/unidade/*.test.ts",
     "test:dominio": "node --import tsx --test --test-reporter=spec --test-concurrency=1 test/dominio/*.test.ts",
-    "test:sistema": "node --import tsx --test --test-reporter=spec --test-concurrency=1 test/sistema/*.test.ts"
+    "test:sistema": "node --import tsx --test --test-reporter=spec --test-concurrency=1 test/sistema/*.test.ts",
+    "carga": "node --import tsx test/carga/lances.ts"
   },
   "dependencies": {
     "@aws-sdk/client-s3": "^3.700.0",

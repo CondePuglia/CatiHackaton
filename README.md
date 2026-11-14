@@ -5,7 +5,7 @@ vivo e o leilão abre e fecha sozinho, com um vencedor.
 
 - **Endereço publicado:** a definir (VM da organização).
 - **Regras da API:** [docs/API.md](docs/API.md).
-- **Estado:** Núcleo, Nível 2 e Bônus 7.1 completos no back-end e nas telas. Bônus 7.2 (nuvem/operação) não começou.
+- **Estado:** Núcleo, Nível 2 e Bônus 7.1 completos no back-end e nas telas. Bônus 7.2 (nuvem e operação) completo no back-end e na infraestrutura.
 
 ## Arquitetura
 
@@ -14,9 +14,9 @@ Tudo sobe com Docker Compose. Só o proxy publica porta.
 | Serviço | O que é | Papel |
 |---|---|---|
 | `web` | Caddy + telas em React | Única porta de entrada. Serve as telas e encaminha `/api` e `/socket.io`. |
-| `api` | Node 22, Fastify, Socket.IO | HTTP e sala em tempo real. Não guarda estado em memória. |
+| `api` | Node 22, Fastify, Socket.IO | HTTP e sala em tempo real. Não guarda estado em memória; sobem **duas instâncias** por padrão (`API_REPLICAS`) e o Caddy distribui entre elas. |
 | `worker` | mesmo código da API | Abre e fecha leilões lendo do banco, duas vezes por segundo. |
-| `db` | PostgreSQL 16 | Fonte única da verdade e barramento de eventos (LISTEN/NOTIFY). |
+| `db` | PostgreSQL 16 | Fonte única da verdade e barramento de eventos (LISTEN/NOTIFY). Pode ser trocado por um banco gerenciado. |
 | `minio` | S3 local (perfil `local`) | Só no computador. Na VM, as fotos vão para o serviço de armazenamento da organização. |
 
 ## Como recriar do zero
@@ -49,19 +49,74 @@ Para usar o armazenamento da organização em vez do MinIO, no `.env`: apague `C
 deixe `S3_ENDPOINT` vazio para o S3 da AWS, ajuste `S3_BUCKET` e `AWS_REGION`, ponha
 `S3_CRIAR_BUCKET=false` e informe as chaves (ou deixe sem chaves para usar o perfil da instância).
 
+Na VM, o ponto de partida é `cp .env.vm.example .env`, que já traz essas escolhas.
+
+## Nuvem e operação (Bônus 7.2)
+
+Tudo é ligado pelo `.env`; o comando continua sendo `docker compose up -d --build`.
+
+| Item | Como está feito | Como mostrar |
+|---|---|---|
+| Um único comando | `docker compose up -d --build` sobe proxy, API, worker e banco; a API aplica as migrações ao subir. | Recriar do zero pelo README. |
+| Mais de uma instância | `API_REPLICAS=2` (padrão) e `WORKER_REPLICAS`. O Caddy descobre as instâncias pelo DNS do Docker e, se uma cai, tenta a outra. | `curl /api/saude` várias vezes: o campo `instancia` alterna. `docker kill leilao-api-1` no meio de um leilão: a sala reconecta na outra em ~1 s. |
+| HTTPS com domínio | `SITE_ADDRESS=dominio`, `PORTA_PUBLICA=80`, `PORTA_HTTPS=443`, `COOKIE_SEGURO=true`. O Caddy emite e renova o certificado; ele fica no volume `dados_caddy`. | Abrir `https://dominio`. |
+| Banco gerenciado | `COMPOSE_FILE=docker-compose.yml:docker-compose.gerenciado.yml`, `DATABASE_URL` do provedor e `DB_SSL=verificar`. O serviço `db` deixa de subir. | `docker compose ps` sem `db`. |
+| Deploy a cada alteração | `.github/workflows/ci-cd.yml`: todo push roda os testes na pilha inteira; na `main`, entra na VM por SSH e roda `scripts/deploy.sh --atualizar`. | Fazer um commit e acompanhar em Actions. |
+| Registros e métricas | Registros em JSON de todos os serviços (`docker compose logs -f api worker web`), com uma linha por lance. Métricas em `GET /api/metricas`, formato do Prometheus. | `curl /api/metricas` durante a disputa. |
+| Teste de carga | `npm run carga`: dezenas de compradores dando o mesmo lance ao mesmo tempo, com reenvios; no fim confere o que ficou gravado. | Ver abaixo. |
+
+O deploy automático precisa, no GitHub (Settings → Secrets and variables → Actions), das variáveis
+`VM_HOST`, `VM_USUARIO`, `VM_PASTA` (e opcionalmente `VM_PORTA` e `URL_PUBLICA`) e do segredo
+`VM_CHAVE_SSH`. Sem `VM_HOST`, só os testes rodam. Na VM, o repositório fica clonado em `VM_PASTA`
+com o `.env` já preenchido.
+
+Com banco gerenciado, use o endereço direto do banco (não um pooler em modo transação: a API mantém
+uma conexão em `LISTEN`) e um usuário que possa criar a extensão `unaccent`.
+
+### Métricas
+
+`GET /api/metricas` (com `Authorization: Bearer $METRICAS_TOKEN`, se a variável estiver preenchida).
+Cada coleta cai em uma instância; toda série leva o rótulo `instancia`.
+
+| Série | O que mostra |
+|---|---|
+| `leilao_lances_total{resultado}` | Lances recebidos: `ACEITO`, `REENVIO` ou o motivo da recusa. |
+| `leilao_lance_duracao_segundos` | Tempo de processamento do lance, incluindo a fila do leilão no banco. |
+| `leilao_http_requisicoes_total{metodo,rota,status}` e `leilao_http_duracao_segundos` | Tráfego HTTP por rota. |
+| `leilao_sockets_conectados`, `leilao_pessoas_nas_salas` | Conexões nesta instância e pessoas nas salas no sistema todo. |
+| `leilao_transicoes_atrasadas{tipo}`, `leilao_transicao_maior_atraso_segundos` | Leilões que já deviam ter aberto ou fechado. Zero com o worker em dia. |
+| `leilao_leiloes{status}`, `leilao_lances_gravados` | Estado do negócio, lido do banco. |
+| `leilao_db_conexoes{estado}`, `leilao_laco_atraso_segundos` | Saúde do processo: pool do banco e laço de eventos. |
+
+### Teste de carga
+
+```bash
+C="docker compose -p leilao-teste --env-file .env.teste -f docker-compose.yml -f docker-compose.teste.yml"
+$C up -d --build db minio api worker web
+$C run --rm -e CARGA_COMPRADORES=100 -e CARGA_SEGUNDOS=20 testes npm run carga
+# contra o sistema publicado (confere pela API, sem acesso ao banco):
+$C run --rm --no-deps -e URL_SISTEMA=https://dominio -e DATABASE_URL_SISTEMA= testes npm run carga
+```
+
+Resultado em um notebook, com 2 instâncias da API, 100 compradores e 2 leilões por 20 s: 2.843 lances
+processados (136/s), 1.464 aceitos, latência p50 8 ms, p95 19 ms, p99 51 ms. A conferência final passou:
+sequências sem buraco nem repetição, todo lance acima do mínimo vigente, nenhum reenvio virou segundo
+lance e todas as salas terminaram no mesmo estado.
+
 ## Contas de demonstração
 
 Senha de todas: `demo1234`.
 
 | E-mail | Papel na demo |
 |---|---|
-| `carla@demo.dev` | comitente dos seis leilões |
-| `ana@demo.dev` | compradora (conta criada há mais de um ano) |
-| `bruno@demo.dev` | comprador |
-| `caio@demo.dev` | comprador, venceu o leilão já vendido |
+| `carla@demo.dev` | comitente dos sete leilões |
+| `ana@demo.dev` | compradora, conta criada há mais de um ano: 70 pontos, crédito de R$ 63.000 |
+| `bruno@demo.dev` | comprador: 15 pontos, crédito de R$ 2.700 |
+| `caio@demo.dev` | comprador, venceu o leilão já vendido: 4 pontos, crédito de R$ 120 |
 
 O comando cria um leilão em cada situação: agendado, em andamento sem lances, em andamento com
-lances, vendido, encerrado sem lances e cancelado. `--recriar` apaga tudo e cria de novo.
+lances, vendido, encerrado sem lances e cancelado, mais um carro com lance mínimo de R$ 50.000, em que
+só a Ana tem crédito para participar e os outros entram como espectadores (RF32). `--recriar` apaga tudo e cria de novo.
 
 ## Testes
 
@@ -69,8 +124,9 @@ lances, vendido, encerrado sem lances e cancelado. `--recriar` apaga tudo e cria
 C="docker compose -p leilao-teste --env-file .env.teste -f docker-compose.yml -f docker-compose.teste.yml"
 $C up -d --build db minio api worker web
 $C run --rm testes npm run test:unidade     # 15 testes: regras puras
-$C run --rm testes npm run test:dominio     # 73 testes: banco e bucket reais, tempo controlado
-$C run --rm testes npm run test:sistema     # 14 testes: pilha em pé, tempo real, pelo proxy
+$C run --rm testes npm run test:dominio     # 77 testes: banco e bucket reais, tempo controlado
+$C run --rm testes npm run test:sistema     # 16 testes: pilha em pé com 2 APIs e 2 workers, pelo proxy
+$C run --rm testes npm run carga            # teste de carga, com conferência no fim
 $C down -v
 ```
 
@@ -97,6 +153,10 @@ $C down -v
 | RF31 crédito | Limite = renda × 6 × pontuação ÷ 100; reserva = soma dos leilões em andamento que o usuário lidera, calculada na hora. | Sem tabela de reserva: ser superado ou o leilão terminar libera sozinho; vencer vira histórico. |
 | RF31 concorrência | No lance, trava-se o usuário (`FOR NO KEY UPDATE`) antes do leilão, depois confere o crédito. | Dois lances simultâneos do mesmo usuário nunca estouram o limite; a ordem de travas evita impasse. |
 | RF32 espectador | Só participa quem tem crédito ≥ lance mínimo atual; os demais entram assistindo. | Evita lance que nasce inválido; o crédito é reavaliado a cada lance. |
+| 7.2 várias instâncias | Nada em memória: lances em fila no banco, eventos por LISTEN/NOTIFY e presença das salas em tabela, com batimento por instância. | Qualquer instância pode cair ou subir sem quebrar garantia do Núcleo; não precisa de Redis. |
+| 7.2 balanceamento | Caddy com descoberta por DNS; rodízio em `/api`, cookie de afinidade em `/socket.io`. | Escalar é mudar um número no `.env`; a afinidade só importa para quem cair em long-polling. |
+| 7.2 métricas | Formato do Prometheus, escrito à mão, com números do processo e do banco. | Sem dependência nova, e o atraso do worker fica visível mesmo com o worker em outro contêiner. |
+| 7.2 deploy | GitHub Actions testa a pilha inteira e atualiza a VM por SSH com `git pull` + Compose. | O mesmo comando do README; nada de registro de imagens para manter. |
 
 ## O que ficou de fora
 

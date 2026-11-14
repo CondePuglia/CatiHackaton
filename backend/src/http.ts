@@ -2,12 +2,14 @@ import cookie from '@fastify/cookie';
 import multipart from '@fastify/multipart';
 import Fastify, { type FastifyInstance, type FastifyReply, type FastifyRequest } from 'fastify';
 import { CATEGORIAS, config } from './config.js';
-import { habilitarComitente, resumoDeCredito } from './credito.js';
+import { PONTUACAO_MINIMA_COMITENTE, habilitarComitente, minhasCompras, resumoDeCredito } from './credito.js';
 import { agoraDoBanco } from './db.js';
 import { ErroApp, naoAutenticado, naoEncontrado } from './erros.js';
 import { abrirFoto, enviarFoto } from './fotos.js';
 import { cancelarLeilao, criarLeilao, detalharLeilao, listarLeiloes } from './leiloes.js';
+import { TIPO_DO_CONTEUDO, httpDuracao, httpRequisicoes, renderizarMetricas } from './metricas.js';
 import { buscarComitentes, editarLeilao, minhasParticipacoes, perfilDoComitente, relistarLeilao } from './nivel2.js';
+import { INSTANCIA } from './presenca.js';
 import { FAIXAS_INCREMENTO, STATUS, type Status } from './regras.js';
 import { criarSessao, encerrarSessao, usarSessao, type Usuario } from './sessoes.js';
 import { autenticar, cadastrar, usuarioPublico } from './usuarios.js';
@@ -106,7 +108,27 @@ export async function criarApp(): Promise<FastifyInstance> {
   // -------------------------------------------------------------------------
   // Utilidades
   // -------------------------------------------------------------------------
-  app.get('/api/saude', async () => ({ ok: true, agora: (await agoraDoBanco()).toISOString() }));
+  /** `instancia` mostra qual processo respondeu: com várias instâncias, ela muda entre chamadas. */
+  app.get('/api/saude', async () => ({ ok: true, agora: (await agoraDoBanco()).toISOString(), instancia: INSTANCIA }));
+
+  // -------------------------------------------------------------------------
+  // Operação (Bônus 7.2): métricas
+  // -------------------------------------------------------------------------
+  // Rótulo `rota` é o padrão da rota (/api/leiloes/:id), nunca a URL crua: o
+  // número de séries não cresce com o número de leilões.
+  app.addHook('onResponse', async (req, reply) => {
+    const rota = req.routeOptions?.url ?? 'desconhecida';
+    if (rota === '/api/metricas') return;
+    httpRequisicoes.somar({ metodo: req.method, rota, status: reply.statusCode });
+    httpDuracao.observar({ metodo: req.method, rota }, reply.elapsedTime / 1000);
+  });
+
+  app.get('/api/metricas', { logLevel: 'warn' }, async (req, reply) => {
+    if (config.metricasToken && req.headers.authorization !== `Bearer ${config.metricasToken}`) {
+      throw naoAutenticado();
+    }
+    return reply.header('content-type', TIPO_DO_CONTEUDO).send(await renderizarMetricas());
+  });
 
   /** Tudo o que a tela precisa para montar formulários sem repetir regra. */
   app.get('/api/config', async () => ({
@@ -167,7 +189,7 @@ export async function criarApp(): Promise<FastifyInstance> {
       return {
         habilitado: false,
         pontuacao: r.pontuacao,
-        minimo: 50,
+        minimo: PONTUACAO_MINIMA_COMITENTE,
       };
     }
     return { habilitado: true, pontuacao: r.pontuacao, comitenteDesde: r.comitenteDesde };
@@ -182,8 +204,17 @@ export async function criarApp(): Promise<FastifyInstance> {
       limiteCentavos: c.limiteCentavos,
       reservadoCentavos: c.reservadoCentavos,
       disponivelCentavos: c.disponivelCentavos,
+      // de onde a pontuação vem (RF29), para a tela explicar o número
+      rendaMensalCentavos: c.rendaMensalCentavos,
+      diasDeConta: c.diasDeConta,
+      compras: c.compras,
+      totalCompradoCentavos: c.totalCompradoCentavos,
+      pontuacaoMinimaComitente: PONTUACAO_MINIMA_COMITENTE,
     };
   });
+
+  /** RF31: histórico de compras (leilões vencidos) e o que está reservado agora. */
+  app.get('/api/eu/compras', async (req) => minhasCompras((await exigirLogin(req)).id));
 
   // -------------------------------------------------------------------------
   // Fotos (RF07)

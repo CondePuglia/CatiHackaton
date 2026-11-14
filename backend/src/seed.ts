@@ -9,6 +9,15 @@ import { fotoDeDemonstracao, type Cor } from './png.js';
  * RNF04 — dados de demonstração: 1 comitente, 3 compradores e um leilão em cada
  * estado. Os horários são relativos ao momento em que o comando roda.
  *
+ * Bônus (RF29–RF32): os compradores têm créditos bem diferentes e a Ana tem
+ * uma conta de 400 dias, para a pontuação por tempo de conta aparecer sem
+ * esperar 180 dias. Com os dados abaixo:
+ *   Ana    renda R$ 15.000, conta antiga      -> 70 pontos, limite R$ 63.000
+ *   Bruno  renda R$ 3.000                     -> 15 pontos, limite R$ 2.700
+ *   Caio   renda R$ 500, 1 compra de R$ 650   ->  4 pontos, limite R$ 120
+ * No leilão do carro (lance mínimo de R$ 50.000) só a Ana consegue participar;
+ * Bruno e Caio entram como espectadores (RF32).
+ *
  *   docker compose run --rm api node dist/seed.js            # cria (não repete se já existir)
  *   docker compose run --rm api node dist/seed.js --recriar  # APAGA TUDO e cria de novo
  */
@@ -51,6 +60,11 @@ const LEILOES: Modelo[] = [
     descricao: 'Câmera reflex 35 mm funcionando, com lente 50 mm e estojo de couro original.',
     categoria: 'eletronicos', cor: [90, 90, 110], preco: 300_00, status: 'EM_ANDAMENTO', inicio: -10, termino: 15,
     lances: [{ quem: 1, valor: 300_00 }, { quem: 2, valor: 320_00 }, { quem: 1, valor: 350_00 }],
+  },
+  {
+    nome: 'Carro sedã 2019 completo',
+    descricao: 'Sedã 2019 com 48 mil km, único dono, revisões na concessionária e manual do proprietário.',
+    categoria: 'veiculos', cor: [200, 60, 60], preco: 50_000_00, status: 'EM_ANDAMENTO', inicio: -3, termino: 45,
   },
   {
     nome: 'Poltrona de couro restaurada',

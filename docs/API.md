@@ -21,7 +21,8 @@ Status HTTP usados: 200, 201, 204, 400 (requisição malformada), 401 (sem sess�
 
 | Método e rota | Login | O que faz |
 |---|---|---|
-| `GET /api/saude` | não | Diz se está no ar e a hora do servidor. |
+| `GET /api/saude` | não | Diz se está no ar, a hora do servidor e qual `instancia` respondeu. |
+| `GET /api/metricas` | token | Métricas no formato do Prometheus. Exige `Authorization: Bearer <METRICAS_TOKEN>` quando a variável está preenchida. |
 | `GET /api/config` | não | Categorias, limites, tabela de incrementos e regra de prorrogação em vigor. |
 | `POST /api/usuarios` | não | Cadastro: `nome`, `email`, `senha`, `rendaMensalCentavos` (inteiro ≥ 0). Já abre a sessão. `409 EMAIL_JA_CADASTRADO`. |
 | `POST /api/sessao` | não | Login: `email`, `senha`. `401 CREDENCIAIS_INVALIDAS`. |
@@ -35,7 +36,8 @@ Status HTTP usados: 200, 201, 204, 400 (requisição malformada), 401 (sem sess�
 | `POST /api/leiloes/:id/cancelar` | sim | Só o comitente. `409 CANCELAMENTO_NAO_PERMITIDO` se houver lances ou já tiver terminado. |
 | `GET /api/eu/leiloes` | sim | Leilões que eu anunciei, em qualquer estado. |
 | `POST /api/eu/comitente` | sim | Habilita o usuário a vender se a pontuação for ≥ 50; senão devolve `{ habilitado: false, pontuacao, minimo }`. |
-| `GET /api/eu/credito` | sim | `{ pontuacao, limiteCentavos, reservadoCentavos, disponivelCentavos }`. |
+| `GET /api/eu/credito` | sim | `{ pontuacao, limiteCentavos, reservadoCentavos, disponivelCentavos }` e as parcelas da pontuação: `rendaMensalCentavos`, `diasDeConta`, `compras`, `totalCompradoCentavos`, `pontuacaoMinimaComitente`. |
+| `GET /api/eu/compras` | sim | RF31. `compras` (leilões vencidos) e `reservas` (leilões em andamento que lidero), cada item com `{ leilaoId, itemNome, valorCentavos, em }`, mais `totalCompradoCentavos` e `reservadoCentavos`. |
 
 ## Tempo real (Socket.IO)
 
@@ -169,7 +171,8 @@ que já existia nunca muda.
 | `sala:item` | servidor → sala | `{ leilaoId }`: a descrição mudou, recarregar o detalhe | — |
 | `lance:superado` | servidor → usuário | `{ leilaoId, itemNome, valorCentavos }` | — |
 
-- RF25: o comitente é sempre espectador do próprio leilão. A contagem é de pessoas, não de abas.
+- RF25: o comitente é sempre espectador do próprio leilão. A contagem é de pessoas, não de abas, e
+  soma todas as instâncias da API: a presença fica no banco e some em até 30 s se uma instância morrer.
 - RF26: `lance:superado` chega a todo socket do usuário superado, esteja ele na sala ou não.
 - RF24: ao reconectar, emitir `sala:entrar` de novo; a resposta traz o estado inteiro.
 

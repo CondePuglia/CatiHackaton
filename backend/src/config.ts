@@ -47,6 +47,14 @@ export const config = {
   porta: numero('PORT', 3000),
   databaseUrl: texto('DATABASE_URL', 'postgres://leilao:leilao@localhost:5432/leilao'),
   conexoesBanco: numero('DB_POOL', 20),
+  /**
+   * Banco gerenciado (Bônus 7.2) costuma exigir TLS. Vazio = sem TLS (banco na
+   * rede interna do Compose); `verificar` = TLS conferindo o certificado;
+   * `sem-verificar` = TLS sem conferir a cadeia (certificado próprio do provedor).
+   */
+  bancoSsl: texto('DB_SSL', ''),
+  /** Se preenchido, GET /api/metricas exige `Authorization: Bearer <token>`. */
+  metricasToken: opcional('METRICAS_TOKEN'),
   logLevel: texto('LOG_LEVEL', 'info'),
 
   /** RF02: 2 h sem uso encerram a sessão; cada uso renova; teto absoluto de 24 h. */

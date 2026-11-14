@@ -1,6 +1,7 @@
 import { config } from './config.js';
 import { aguardarBanco, pool } from './db.js';
 import { migrar } from './migrar.js';
+import { apagarPresencasVencidas } from './presenca.js';
 import { apagarSessoesExpiradas } from './sessoes.js';
 import { rodada } from './transicoes.js';
 
@@ -31,12 +32,20 @@ async function principal(): Promise<void> {
   registrar('worker pronto', { intervaloMs: config.worker.intervaloMs });
 
   let ultimaFaxina = 0;
+  let ultimaRonda = 0;
   while (!parar) {
     const inicio = Date.now();
     try {
       const { abertos, fechados } = await rodada();
       for (const id of abertos) registrar('leilão aberto', { leilaoId: id });
       for (const f of fechados) registrar('leilão fechado', { leilaoId: f.id, status: f.status });
+
+      // RF25 com várias instâncias: quem estava em uma instância que morreu sai da contagem
+      if (inicio - ultimaRonda > 10_000) {
+        ultimaRonda = inicio;
+        const vencidas = await apagarPresencasVencidas();
+        if (vencidas) registrar('presenças vencidas apagadas', { salas: vencidas });
+      }
 
       if (inicio - ultimaFaxina > 60_000) {
         ultimaFaxina = inicio;

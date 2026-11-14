@@ -6,6 +6,11 @@
 # e /socket.io para a API. Banco, API e worker ficam na rede interna do Compose.
 # Nenhum serviço usa bind mount: a mesma definição funciona apontando o Docker
 # para a VM por SSH.
+#
+# Bônus 7.2, tudo pelo .env (ver .env.vm.example):
+#   - várias instâncias da API:  API_REPLICAS (padrão 2); o Caddy distribui entre elas
+#   - HTTPS com domínio:         SITE_ADDRESS=dominio, PORTA_PUBLICA=80, PORTA_HTTPS=443
+#   - banco gerenciado:          DATABASE_URL + COMPOSE_FILE com docker-compose.gerenciado.yml
 
 name: leilao
 
@@ -21,6 +26,8 @@ x-backend: &backend
   depends_on:
     db:
       condition: service_healthy
+      # com banco gerenciado o serviço `db` nem sobe (docker-compose.gerenciado.yml)
+      required: false
 
 services:
   db:
@@ -53,13 +60,21 @@ services:
     volumes:
       - dados_fotos_local:/data
 
+  # Mais de uma instância: nenhuma guarda estado em memória. Lances formam fila
+  # no banco, os eventos chegam a todas por LISTEN/NOTIFY e a presença nas salas
+  # também fica no banco.
   api:
     <<: *backend
     command: ["node", "dist/api.js"]
+    deploy:
+      replicas: ${API_REPLICAS:-2}
 
+  # Também pode ter mais de um: abrir e fechar são UPDATEs condicionais.
   worker:
     <<: *backend
     command: ["node", "dist/worker.js"]
+    deploy:
+      replicas: ${WORKER_REPLICAS:-1}
 
   web:
     build:
@@ -69,9 +84,17 @@ services:
       SITE_ADDRESS: ${SITE_ADDRESS:-:80}
     ports:
       - "${PORTA_PUBLICA:-8080}:80"
+      # só responde quando SITE_ADDRESS é um domínio (o Caddy emite o certificado)
+      - "${PORTA_HTTPS:-8443}:443"
+    volumes:
+      # certificados emitidos: sobrevivem a recriar o contêiner
+      - dados_caddy:/data
+      - config_caddy:/config
     depends_on:
       - api
 
 volumes:
   dados_banco:
+  dados_caddy:
+  config_caddy:
   dados_fotos_local:

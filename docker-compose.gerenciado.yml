@@ -1,0 +1,16 @@
+# Banco de dados gerenciado (Bônus 7.2): o Postgres deixa de rodar na VM.
+#
+# No .env da VM:
+#   COMPOSE_FILE=docker-compose.yml:docker-compose.gerenciado.yml
+#   DATABASE_URL=postgres://usuario:senha@host-do-provedor:5432/leilao
+#   DB_SSL=verificar            # ou sem-verificar, se o provedor usa certificado próprio
+#
+# Com isso o comando continua o mesmo: docker compose up -d --build
+#
+# Use o endereço DIRETO do banco, não o de um pooler em modo transação: a API
+# mantém uma conexão em LISTEN e as migrações usam trava consultiva de sessão.
+# O usuário precisa poder criar a extensão `unaccent` (migração 002).
+
+services:
+  db:
+    profiles: ["banco-na-vm"]

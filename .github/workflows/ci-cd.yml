@@ -1,0 +1,80 @@
+# Deploy automatizado a cada alteração (Bônus 7.2).
+#
+# Todo push e todo pull request rodam os testes contra a pilha inteira em
+# contêineres (proxy, 2 instâncias da API, 2 workers, banco e bucket). Se
+# passarem e o push for na main, a VM é atualizada por SSH.
+#
+# Configuração, uma vez, em Settings > Secrets and variables > Actions:
+#   Variables: VM_HOST (IP ou domínio), VM_USUARIO, VM_PASTA (onde o repositório
+#              foi clonado na VM), VM_PORTA (opcional, padrão 22)
+#   Secrets:   VM_CHAVE_SSH (chave privada com acesso à VM)
+# Sem VM_HOST o deploy é pulado e só os testes rodam.
+
+name: testes e deploy
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+  workflow_dispatch:
+
+concurrency:
+  group: ${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: ${{ github.event_name == 'pull_request' }}
+
+env:
+  C: docker compose -p leilao-teste --env-file .env.teste -f docker-compose.yml -f docker-compose.teste.yml
+
+jobs:
+  testes:
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Sobe a pilha de teste
+        run: $C up -d --build db minio api worker web
+
+      - name: Testes de unidade
+        run: $C run --rm testes npm run test:unidade
+
+      - name: Testes de domínio
+        run: $C run --rm testes npm run test:dominio
+
+      - name: Testes de sistema
+        run: $C run --rm testes npm run test:sistema
+
+      - name: Teste de carga (curto)
+        run: $C run --rm -e CARGA_COMPRADORES=40 -e CARGA_SEGUNDOS=10 testes npm run carga
+
+      - name: Registros, se algo falhou
+        if: failure()
+        run: $C logs --tail 200 api worker web
+
+      - name: Derruba a pilha
+        if: always()
+        run: $C down -v
+
+  deploy:
+    needs: testes
+    if: github.event_name != 'pull_request' && github.ref == 'refs/heads/main' && vars.VM_HOST != ''
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    steps:
+      - name: Prepara a chave SSH
+        env:
+          VM_CHAVE_SSH: ${{ secrets.VM_CHAVE_SSH }}
+        run: |
+          mkdir -p ~/.ssh
+          printf '%s\n' "$VM_CHAVE_SSH" > ~/.ssh/vm
+          chmod 600 ~/.ssh/vm
+          ssh-keyscan -p "${{ vars.VM_PORTA || 22 }}" "${{ vars.VM_HOST }}" >> ~/.ssh/known_hosts
+
+      - name: Atualiza a VM
+        run: |
+          ssh -i ~/.ssh/vm -p "${{ vars.VM_PORTA || 22 }}" "${{ vars.VM_USUARIO }}@${{ vars.VM_HOST }}" \
+            "cd '${{ vars.VM_PASTA }}' && ./scripts/deploy.sh --atualizar"
+
+      - name: Confere o endereço publicado
+        if: vars.URL_PUBLICA != ''
+        run: curl -fsS --retry 10 --retry-delay 3 --retry-all-errors "${{ vars.URL_PUBLICA }}/api/saude"

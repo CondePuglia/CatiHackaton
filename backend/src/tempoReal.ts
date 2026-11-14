@@ -6,6 +6,15 @@ import type { EventoLeilao } from './eventos.js';
 import { CHAVE_VALIDA, MENSAGENS, darLance, lanceMinimoVigente, recusa, type ResultadoLance } from './lances.js';
 import { pool } from './db.js';
 import { estadoDaSala, vinculoComLeilao } from './leiloes.js';
+import { conexoesTempoReal, eventosRecebidos, informarSockets, lanceDuracao, lancesProcessados } from './metricas.js';
+import {
+  BATIMENTO_MS,
+  contarPresenca,
+  marcarPresenca,
+  removerPresenca,
+  removerPresencasDaInstancia,
+  renovarPresencas,
+} from './presenca.js';
 import { usarSessao, type Usuario } from './sessoes.js';
 import { idPositivo } from './validacao.js';
 
@@ -22,7 +31,9 @@ import { idPositivo } from './validacao.js';
  *    é assim que "o autor está na sala do leilão" (RF10) é verificado no servidor;
  *  - cada lance revalida a sessão no banco (RF02);
  *  - a sala nunca recebe estado calculado em memória: recebe a fotografia lida
- *    do banco depois do commit (RF11).
+ *    do banco depois do commit (RF11);
+ *  - quem está em cada sala também fica no banco (presenca.ts), para a contagem
+ *    do RF25 valer com várias instâncias da API.
  */
 
 /**
@@ -80,32 +91,38 @@ export function iniciarTempoReal(app: FastifyInstance) {
   /** Quem perdeu a sessão recebe a resposta e só depois é desligado. */
   const desligar = (socket: SocketDaSala) => setTimeout(() => socket.disconnect(true), 100);
 
+  let encerrando = false;
+  informarSockets(() => io.sockets.sockets.size);
+
   /**
-   * RF25: quantas PESSOAS (não abas) há na sala, por papel. Quem tem uma aba
-   * como participante e outra como espectador conta como participante.
+   * RF25: a presença é gravada no banco e o banco avisa TODAS as instâncias
+   * (evento PRESENCA); cada uma relê a contagem e avisa os próprios sockets.
+   * Se a pessoa desligou enquanto a gravação estava a caminho, desfaz.
    */
-  function presenca(leilaoId: number, ignorar?: string) {
-    const participantes = new Set<number>();
-    const espectadores = new Set<number>();
-    for (const id of io.sockets.adapter.rooms.get(salaDoLeilao(leilaoId)) ?? []) {
-      if (id === ignorar) continue;
-      const s = io.sockets.sockets.get(id);
-      const papel = s?.data.salas?.get(leilaoId);
-      if (!s || !papel) continue;
-      (papel === 'PARTICIPANTE' ? participantes : espectadores).add(s.data.usuario.id);
-    }
-    for (const id of participantes) espectadores.delete(id);
-    return { leilaoId, participantes: participantes.size, espectadores: espectadores.size };
+  async function registrarPresenca(socket: SocketDaSala, leilaoId: number, papel: Papel): Promise<void> {
+    await marcarPresenca(socket.id, leilaoId, socket.data.usuario.id, papel);
+    if (!socket.connected) await removerPresenca(socket.id);
   }
-  const avisarPresenca = (leilaoId: number, ignorar?: string) =>
-    io.to(salaDoLeilao(leilaoId)).emit('sala:presenca', presenca(leilaoId, ignorar));
+
+  // Batimento: só renova quem ainda está conectado AQUI. Uma linha que sobrou
+  // de um socket que já caiu envelhece e sai da contagem sozinha.
+  const batimento = setInterval(() => {
+    renovarPresencas([...io.sockets.sockets.keys()]).catch((erro) =>
+      app.log.error({ erro: (erro as Error).message }, 'falha ao renovar presenças'),
+    );
+  }, BATIMENTO_MS);
+  batimento.unref();
 
   io.on('connection', (socket: SocketDaSala) => {
     const { usuario } = socket.data;
+    conexoesTempoReal.somar();
 
-    // ao cair, o socket ainda consta nas salas: descontamos ele da contagem
+    // caiu ou fechou a aba: sai da contagem de todas as salas em que estava
     socket.on('disconnecting', () => {
-      for (const leilaoId of socket.data.salas.keys()) avisarPresenca(leilaoId, socket.id);
+      if (encerrando || socket.data.salas.size === 0) return;
+      removerPresenca(socket.id).catch((erro) =>
+        app.log.error({ erro: (erro as Error).message }, 'falha ao remover presença'),
+      );
     });
     void socket.join(salaDoUsuario(usuario.id));
 
@@ -157,14 +174,14 @@ export function iniciarTempoReal(app: FastifyInstance) {
           papel = dados.papel === 'ESPECTADOR' ? 'ESPECTADOR' : 'PARTICIPANTE';
         }
         socket.data.salas.set(leilaoId, papel);
+        await registrarPresenca(socket, leilaoId, papel);
 
         responder({
           ok: true,
           estado,
           eu: { papel, numero: vinculo.numero, ...(aviso ? { aviso } : {}) },
-          presenca: presenca(leilaoId),
+          presenca: await contarPresenca(leilaoId),
         });
-        avisarPresenca(leilaoId);
       }),
     );
 
@@ -189,8 +206,8 @@ export function iniciarTempoReal(app: FastifyInstance) {
           }
         }
         socket.data.salas.set(leilaoId, dados.papel);
+        await registrarPresenca(socket, leilaoId, dados.papel);
         responder({ ok: true, eu: { papel: dados.papel } });
-        avisarPresenca(leilaoId);
       }),
     );
 
@@ -201,7 +218,7 @@ export function iniciarTempoReal(app: FastifyInstance) {
         if (leilaoId !== null) {
           socket.data.salas.delete(leilaoId);
           await socket.leave(salaDoLeilao(leilaoId));
-          avisarPresenca(leilaoId);
+          await removerPresenca(socket.id, leilaoId);
         }
         responder({ ok: true });
       }),
@@ -209,8 +226,27 @@ export function iniciarTempoReal(app: FastifyInstance) {
 
     // ---- lance (RF10) -------------------------------------------------------
     socket.on('lance:enviar', (dados: any, ack: unknown) => {
-      const responder: (r: ResultadoLance | Record<string, unknown>) => void =
-        typeof ack === 'function' ? (ack as Responder) : () => {};
+      const chegou = process.hrtime.bigint();
+      const devolver: Responder = typeof ack === 'function' ? (ack as Responder) : () => {};
+      // Toda resposta de lance passa por aqui: conta, mede e registra (Bônus 7.2).
+      const responder = (resposta: ResultadoLance | Record<string, unknown>): void => {
+        const r = resposta as { aceito?: boolean; reenvio?: boolean; motivo?: string };
+        const segundos = Number(process.hrtime.bigint() - chegou) / 1e9;
+        const resultado = r.reenvio ? 'REENVIO' : r.aceito ? 'ACEITO' : String(r.motivo);
+        lancesProcessados.somar({ resultado });
+        lanceDuracao.observar({ aceito: r.aceito ? 'sim' : 'nao' }, segundos);
+        app.log.info(
+          {
+            leilaoId: idPositivo(dados?.leilaoId),
+            usuarioId: usuario.id,
+            valorCentavos: typeof dados?.valorCentavos === 'number' ? dados.valorCentavos : null,
+            resultado,
+            ms: Math.round(segundos * 1000),
+          },
+          'lance',
+        );
+        devolver(resposta);
+      };
 
       (async () => {
         const leilaoId = idPositivo(dados?.leilaoId);
@@ -262,9 +298,11 @@ export function iniciarTempoReal(app: FastifyInstance) {
   // ---- saída: avisar as salas ----------------------------------------------
   // Uma fila por leilão: fotografias saem em ordem, e eventos que chegam
   // enquanto uma leitura está em curso são fundidos em uma leitura só.
-  const filas = new Map<number, { rodando: boolean; pendente: boolean }>();
+  type Fila = { rodando: boolean; pendente: boolean };
+  const filasDeEstado = new Map<number, Fila>();
+  const filasDePresenca = new Map<number, Fila>();
 
-  function difundir(leilaoId: number): void {
+  function emFila(filas: Map<number, Fila>, leilaoId: number, oQue: string, enviar: () => Promise<void>): void {
     if (!io.sockets.adapter.rooms.has(salaDoLeilao(leilaoId))) return; // ninguém olhando daqui
     let fila = filas.get(leilaoId);
     if (!fila) filas.set(leilaoId, (fila = { rodando: false, pendente: false }));
@@ -277,22 +315,35 @@ export function iniciarTempoReal(app: FastifyInstance) {
       try {
         do {
           fila.pendente = false;
-          const estado = await estadoDaSala(leilaoId);
-          if (estado) io.to(salaDoLeilao(leilaoId)).emit('sala:estado', estado);
+          await enviar();
         } while (fila.pendente);
       } catch (erro) {
-        app.log.error({ erro, leilaoId }, 'falha ao difundir estado da sala');
+        app.log.error({ erro, leilaoId }, `falha ao difundir ${oQue}`);
       } finally {
         filas.delete(leilaoId);
       }
     })();
   }
 
+  const difundir = (leilaoId: number): void =>
+    emFila(filasDeEstado, leilaoId, 'estado da sala', async () => {
+      const estado = await estadoDaSala(leilaoId);
+      if (estado) io.to(salaDoLeilao(leilaoId)).emit('sala:estado', estado);
+    });
+
+  /** RF25: a contagem sai do banco, então é a mesma em todas as instâncias. */
+  const difundirPresenca = (leilaoId: number): void =>
+    emFila(filasDePresenca, leilaoId, 'presença', async () => {
+      io.to(salaDoLeilao(leilaoId)).emit('sala:presenca', await contarPresenca(leilaoId));
+    });
+
   return {
     io,
 
     /** Chamado para cada evento confirmado no banco (ver eventos.ts). */
     aoEvento(evento: EventoLeilao): void {
+      eventosRecebidos.somar({ tipo: evento.tipo });
+      if (evento.tipo === 'PRESENCA') return difundirPresenca(evento.leilaoId);
       difundir(evento.leilaoId);
       // a sala também é avisada de que a descrição mudou, para recarregar o item
       if (evento.tipo === 'EDITADO') io.to(salaDoLeilao(evento.leilaoId)).emit('sala:item', { leilaoId: evento.leilaoId });
@@ -317,11 +368,19 @@ export function iniciarTempoReal(app: FastifyInstance) {
     ressincronizar(): void {
       for (const nome of io.sockets.adapter.rooms.keys()) {
         const m = /^leilao:(\d+)$/.exec(nome);
-        if (m) difundir(Number(m[1]));
+        if (m) {
+          difundir(Number(m[1]));
+          difundirPresenca(Number(m[1]));
+        }
       }
     },
 
     async encerrar(): Promise<void> {
+      encerrando = true;
+      clearInterval(batimento);
+      // as outras instâncias param de contar quem estava aqui; ao reconectar
+      // (RF24), cada pessoa entra de novo na sala e volta para a contagem
+      await removerPresencasDaInstancia().catch(() => {});
       await io.close();
     },
   };

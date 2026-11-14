@@ -66,6 +66,37 @@ export async function resumoDeCredito(usuarioId: number, conexao: Conexao = pool
   };
 }
 
+export type Compra = { leilaoId: number; itemNome: string; valorCentavos: number; em: string };
+
+/**
+ * RF31: o histórico de compras (leilões vencidos, que alimentam a pontuação) e
+ * as reservas em vigor (leilões em andamento que o usuário lidera agora).
+ */
+export async function minhasCompras(
+  usuarioId: number,
+): Promise<{ compras: Compra[]; reservas: Compra[]; totalCompradoCentavos: number; reservadoCentavos: number }> {
+  const { rows } = await pool.query(
+    `SELECT l.id, i.nome, l.status, l.preco_atual_centavos,
+            COALESCE(l.encerrado_em, (SELECT max(criado_em) FROM lances WHERE leilao_id = l.id)) AS em
+       FROM leiloes l JOIN itens i ON i.id = l.item_id
+      WHERE l.lider_id = $1 AND l.status IN ('VENDIDO', 'EM_ANDAMENTO')
+      ORDER BY em DESC NULLS LAST, l.id DESC`,
+    [usuarioId],
+  );
+  const compras: Compra[] = [];
+  const reservas: Compra[] = [];
+  for (const r of rows) {
+    (r.status === 'VENDIDO' ? compras : reservas).push({
+      leilaoId: r.id,
+      itemNome: r.nome,
+      valorCentavos: r.preco_atual_centavos,
+      em: (r.em as Date).toISOString(),
+    });
+  }
+  const soma = (lista: Compra[]) => lista.reduce((total, c) => total + c.valorCentavos, 0);
+  return { compras, reservas, totalCompradoCentavos: soma(compras), reservadoCentavos: soma(reservas) };
+}
+
 export async function pontuacaoDoUsuario(usuarioId: number): Promise<number> {
   return (await resumoDeCredito(usuarioId)).pontuacao;
 }
