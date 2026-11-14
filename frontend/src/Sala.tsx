@@ -1,29 +1,45 @@
 import { useEffect, useRef, useState, type FormEvent } from 'react';
 import { Link, useParams } from 'react-router-dom';
+import { Button, Tag, TextInput } from '@carbon/react';
+import { ArrowRight, Renew, Time, Trophy, User, View } from '@carbon/icons-react';
 import { io, type Socket } from 'socket.io-client';
-import { Aviso, Selo, acertarRelogio, api, botao, campo, centavosParaTexto, hora, paraCentavos, reais, tempo, useAgora } from './comuns';
-import { Fotos, TextoResultado } from './Detalhe';
+import {
+  acertarRelogio,
+  api,
+  centavosParaTexto,
+  dataHora,
+  hora,
+  incrementoAtual,
+  paraCentavos,
+  reais,
+  tempoPreciso,
+  useAgora,
+  useConfig,
+  useTitulo,
+  type EstadoSala,
+  type Leilao,
+} from './comuns';
+import { Aviso, GaleriaFotos, Selo, VoltarLink } from './ui';
+import { TextoResultado } from './Detalhe';
 
-type Estado = {
-  leilaoId: number;
-  versao: number;
-  status: string;
-  agora: string;
-  inicioEm: string;
-  terminoEm: string;
-  prorrogado: boolean;
-  precoInicialCentavos: number;
-  precoAtualCentavos: number | null;
-  lanceMinimoCentavos: number | null;
-  totalLances: number;
-  lider: { numero: number; apelido: string } | null;
-  ultimosLances: Array<{ sequencia: number; numero: number; apelido: string; valorCentavos: number; em: string }>;
-  resultado: any;
-};
+type Retorno = { tipo: 'ok' | 'erro' | 'info'; texto: string; detalhe?: string };
 
-type Retorno = { tipo: 'ok' | 'erro' | 'info'; texto: string };
+/** Chave por tentativa (RF12); `randomUUID` exige contexto seguro, então há fallback. */
+function novaChave(): string {
+  const c = globalThis.crypto as Crypto & { randomUUID?: () => string };
+  if (typeof c?.randomUUID === 'function') return c.randomUUID();
+  const bytes = new Uint8Array(16);
+  c.getRandomValues(bytes);
+  return Array.from(bytes, (b) => b.toString(16).padStart(2, '0')).join('');
+}
 
-const novaChave = () => crypto.randomUUID();
+function SkeletonSala() {
+  return (
+    <div className="pagina">
+      <p className="carregando">Entrando na sala…</p>
+    </div>
+  );
+}
 
 /**
  * Sala em tempo real (RF09). A tela não calcula nada: mostra a fotografia que o
@@ -31,22 +47,44 @@ const novaChave = () => crypto.randomUUID();
  */
 export function Sala() {
   const leilaoId = Number(useParams().id);
-  const [item, setItem] = useState<any>(null);
-  const [estado, setEstado] = useState<Estado | null>(null);
+  const { config } = useConfig();
+  const [item, setItem] = useState<Leilao | null>(null);
+  const [estado, setEstado] = useState<EstadoSala | null>(null);
   const [eu, setEu] = useState<{ papel: string; numero: number | null }>({ papel: '', numero: null });
   const [conectado, setConectado] = useState(false);
   const [falha, setFalha] = useState('');
   const [valor, setValor] = useState('');
   const [enviando, setEnviando] = useState(false);
+  const [mudandoPapel, setMudandoPapel] = useState(false);
+  const [presenca, setPresenca] = useState<{ participantes: number; espectadores: number } | null>(null);
   const [retorno, setRetorno] = useState<Retorno | null>(null);
+  const [superado, setSuperado] = useState('');
   const socket = useRef<Socket | null>(null);
   // RF12: uma chave por tentativa. Clique duplo e reenvio usam a mesma; só troca
   // depois de uma resposta definitiva do servidor.
   const chave = useRef(novaChave());
+  const liderAnterior = useRef<number | null>(null);
   const agora = useAgora();
 
+  useTitulo(item?.item.nome ?? 'Sala ao vivo');
+
+  // Ao trocar de leilão sem desmontar a rota, limpa o estado da sala anterior.
   useEffect(() => {
-    api(`/leiloes/${leilaoId}`)
+    setEstado(null);
+    setEu({ papel: '', numero: null });
+    setValor('');
+    setRetorno(null);
+    setSuperado('');
+    setFalha('');
+    setEnviando(false);
+    setMudandoPapel(false);
+    setPresenca(null);
+    liderAnterior.current = null;
+    chave.current = novaChave();
+  }, [leilaoId]);
+
+  useEffect(() => {
+    api<{ leilao: Leilao }>(`/leiloes/${leilaoId}`)
       .then((r) => setItem(r.leilao))
       .catch((e) => setFalha(e.message));
   }, [leilaoId]);
@@ -55,10 +93,10 @@ export function Sala() {
     const s = io({ transports: ['websocket', 'polling'] });
     socket.current = s;
 
-    const receber = (novo: Estado) => {
+    const receber = (novo: EstadoSala) => {
       if (novo.leilaoId !== leilaoId) return;
       acertarRelogio(novo.agora);
-      // a versão desempata mensagens fora de ordem: estado velho é ignorado
+      // A versão desempata mensagens fora de ordem: estado velho é ignorado.
       setEstado((atual) => (atual && atual.versao > novo.versao ? atual : novo));
     };
 
@@ -69,6 +107,7 @@ export function Sala() {
         if (!r?.ok) return setFalha(r?.erro?.mensagem ?? 'Não foi possível entrar na sala.');
         setFalha('');
         setEu(r.eu);
+        setPresenca(r.presenca ?? null);
         receber(r.estado);
       });
     });
@@ -78,12 +117,39 @@ export function Sala() {
       if (e.message === 'NAO_AUTENTICADO') setFalha('Sua sessão expirou. Entre de novo para voltar à sala.');
     });
     s.on('sala:estado', receber);
+    s.on('sala:presenca', (p: { leilaoId: number; participantes: number; espectadores: number }) => {
+      if (p.leilaoId === leilaoId) setPresenca({ participantes: p.participantes, espectadores: p.espectadores });
+    });
+    s.on('sala:item', (d: { leilaoId: number }) => {
+      if (d.leilaoId !== leilaoId) return;
+      api<{ leilao: Leilao }>(`/leiloes/${leilaoId}`)
+        .then((r) => setItem(r.leilao))
+        .catch(() => {});
+    });
+    s.on('lance:superado', (d: { leilaoId: number; itemNome: string; valorCentavos: number }) => {
+      if (d.leilaoId !== leilaoId) return;
+      setSuperado(`Seu lance foi superado em ${d.itemNome}. O novo preço é ${reais(d.valorCentavos)}.`);
+    });
     return () => {
       s.close();
     };
   }, [leilaoId]);
 
   const minimo = estado?.lanceMinimoCentavos ?? null;
+  const aberto = estado?.status === 'EM_ANDAMENTO';
+  const souLider = eu.numero !== null && estado?.lider?.numero === eu.numero;
+  const souComitente = eu.papel === 'COMITENTE';
+  const espectador = eu.papel === 'ESPECTADOR';
+  const preco = estado ? (estado.precoAtualCentavos ?? estado.precoInicialCentavos) : null;
+
+  // Aviso de superação (RF26): quando o líder deixa de ser você.
+  useEffect(() => {
+    const atual = estado?.lider?.numero ?? null;
+    if (eu.numero !== null && liderAnterior.current === eu.numero && atual !== null && atual !== eu.numero) {
+      setSuperado(`Seu lance foi superado por ${estado?.lider?.apelido}. O novo preço é ${reais(estado?.precoAtualCentavos ?? 0)}.`);
+    }
+    liderAnterior.current = atual;
+  }, [estado?.lider?.numero, estado?.precoAtualCentavos, eu.numero]);
 
   // Mantém o campo sempre em um valor que ainda vale: se o mínimo subiu, o campo sobe junto.
   useEffect(() => {
@@ -94,10 +160,18 @@ export function Sala() {
     });
   }, [minimo]);
 
+  const valorCentavos = paraCentavos(valor);
+  const valorInvalido = valorCentavos !== null && minimo !== null && valorCentavos < minimo;
+
   async function enviar(e: FormEvent) {
     e.preventDefault();
-    const valorCentavos = paraCentavos(valor);
-    if (valorCentavos === null) return setRetorno({ tipo: 'erro', texto: 'Informe o valor em reais, por exemplo 150,00.' });
+    setSuperado('');
+    if (valorCentavos === null) {
+      return setRetorno({ tipo: 'erro', texto: 'Informe o valor em reais, por exemplo 150,00.' });
+    }
+    if (minimo !== null && valorCentavos < minimo) {
+      return setRetorno({ tipo: 'erro', texto: `O lance mínimo agora é ${reais(minimo)}.` });
+    }
     if (!socket.current || enviando) return;
     setEnviando(true);
     setRetorno(null);
@@ -106,7 +180,11 @@ export function Sala() {
     // Falha de rede: reenvia a MESMA tentativa. O servidor devolve a resposta original (RF12).
     for (let tentativa = 0; tentativa < 4 && !resposta; tentativa++) {
       try {
-        const r = await socket.current.timeout(4000).emitWithAck('lance:enviar', { leilaoId, valorCentavos, chave: chave.current });
+        const r = await socket.current.timeout(4000).emitWithAck('lance:enviar', {
+          leilaoId,
+          valorCentavos,
+          chave: chave.current,
+        });
         if (r?.motivo !== 'ERRO_INTERNO') resposta = r;
       } catch {
         setRetorno({ tipo: 'info', texto: 'Sem resposta do servidor. Reenviando o mesmo lance…' });
@@ -118,7 +196,7 @@ export function Sala() {
       return setRetorno({ tipo: 'erro', texto: 'Não foi possível confirmar o lance. Confira a conexão e tente de novo.' });
     }
     if (resposta.motivo === 'SESSAO_EXPIRADA') {
-      // a chave é mantida: depois do login, o mesmo lance pode ser reenviado
+      // A chave é mantida: depois do login, o mesmo lance pode ser reenviado.
       return setFalha('Sua sessão expirou. Entre de novo para voltar à sala.');
     }
     chave.current = novaChave(); // resposta definitiva: a próxima é outra tentativa
@@ -126,131 +204,350 @@ export function Sala() {
       setEu((x) => ({ ...x, numero: resposta.meuNumero }));
       setRetorno({
         tipo: 'ok',
-        texto: `Lance de ${reais(resposta.lance.valorCentavos)} aceito. Você é o líder.${resposta.prorrogou ? ' O término foi prorrogado.' : ''}`,
+        texto: `Lance de ${reais(resposta.lance.valorCentavos)} aceito. Você é o líder.`,
+        detalhe: resposta.prorrogou ? 'O término foi prorrogado em 2 minutos.' : undefined,
       });
     } else {
       setRetorno({
         tipo: 'erro',
-        texto: `${resposta.mensagem}${resposta.lanceMinimoCentavos ? ` Lance mínimo atual: ${reais(resposta.lanceMinimoCentavos)}.` : ''}`,
+        texto: resposta.mensagem,
+        detalhe: resposta.lanceMinimoCentavos ? `Lance mínimo atual: ${reais(resposta.lanceMinimoCentavos)}.` : undefined,
       });
     }
   }
 
-  if (falha && !estado) {
-    return (
-      <div className="space-y-3">
-        <Aviso>{falha}</Aviso>
-        <Link className="text-sm font-semibold text-indigo-700" to={`/entrar?volta=/leiloes/${leilaoId}/sala`}>
-          Entrar de novo
-        </Link>
-      </div>
-    );
+  function usarValor(centavos: number) {
+    setValor(centavosParaTexto(centavos));
+    setRetorno(null);
   }
-  if (!estado) return <p className="text-sm text-slate-500">Entrando na sala…</p>;
 
-  const souLider = eu.numero !== null && estado.lider?.numero === eu.numero;
-  const souComitente = eu.papel === 'COMITENTE';
-  const aberto = estado.status === 'EM_ANDAMENTO';
-  const restante = new Date(estado.terminoEm).getTime() - agora;
-  const paraAbrir = new Date(estado.inicioEm).getTime() - agora;
-  const quem = (numero: number, apelido: string) => (numero === eu.numero ? `${apelido} (você)` : apelido);
+  async function mudarPapel(papel: 'PARTICIPANTE' | 'ESPECTADOR') {
+    if (!socket.current || mudandoPapel) return;
+    setMudandoPapel(true);
+    setRetorno(null);
+    try {
+      const r: any = await socket.current.timeout(4000).emitWithAck('sala:papel', { leilaoId, papel });
+      if (r?.ok) {
+        setEu((atual) => ({ ...atual, papel: r.eu.papel }));
+        setRetorno({
+          tipo: 'info',
+          texto:
+            papel === 'ESPECTADOR'
+              ? 'Agora você está assistindo. Pode voltar a participar quando quiser.'
+              : 'Agora você participa da disputa. O formulário de lance está liberado.',
+        });
+      } else {
+        setRetorno({ tipo: 'erro', texto: r?.erro?.mensagem ?? 'Não foi possível mudar seu papel na sala.' });
+      }
+    } catch {
+      setRetorno({ tipo: 'erro', texto: 'Sem resposta do servidor. Tente de novo.' });
+    } finally {
+      setMudandoPapel(false);
+    }
+  }
 
-  return (
-    <div className="grid gap-6 lg:grid-cols-2">
-      <div className="space-y-3">
-        {item && <Fotos fotos={item.item.fotos} />}
-        <h1 className="text-xl font-bold">{item?.item.nome ?? 'Leilão'}</h1>
-        <Link className="text-sm font-semibold text-indigo-700" to={`/leiloes/${leilaoId}`}>
-          Ver descrição completa
-        </Link>
-      </div>
-
-      <div className="space-y-4">
-        <div className="flex items-center justify-between">
-          <Selo status={estado.status} />
-          <span className={`text-xs font-semibold ${conectado ? 'text-emerald-700' : 'text-amber-700'}`} role="status">
-            {conectado ? '● Ao vivo' : '○ Reconectando…'}
-          </span>
-        </div>
-        {falha && (
-          <Aviso>
+  if (!estado) {
+    if (falha) {
+      return (
+        <div className="pagina pagina--estreita">
+          <Aviso tipo="erro" titulo="Não foi possível entrar na sala">
             {falha}{' '}
-            <Link className="font-semibold underline" to={`/entrar?volta=/leiloes/${leilaoId}/sala`}>
+            <Link className="link-inline" to={`/entrar?volta=/leiloes/${leilaoId}/sala`}>
               Entrar de novo
             </Link>
           </Aviso>
-        )}
-
-        <div className="rounded-2xl border border-slate-200 bg-white p-5 shadow-sm">
-          <div className="grid grid-cols-2 gap-4">
-            <div>
-              <p className="text-sm text-slate-500">{estado.precoAtualCentavos === null ? 'Preço inicial' : 'Preço atual'}</p>
-              <p className="text-3xl font-bold text-indigo-700">{reais(estado.precoAtualCentavos ?? estado.precoInicialCentavos)}</p>
-            </div>
-            <div className="text-right">
-              <p className="text-sm text-slate-500">{estado.status === 'AGENDADO' ? 'Abre em' : 'Tempo restante'}</p>
-              <p className={`text-3xl font-bold tabular-nums ${aberto && restante < 60_000 ? 'text-rose-600' : ''}`}>
-                {estado.status === 'AGENDADO' ? tempo(paraAbrir) : aberto ? (restante > 0 ? tempo(restante) : 'Encerrando…') : '—'}
-              </p>
-              {estado.prorrogado && aberto && <p className="text-xs font-semibold text-amber-700">Término prorrogado</p>}
-            </div>
-          </div>
-          <dl className="mt-4 grid grid-cols-3 gap-2 border-t border-slate-100 pt-4 text-sm">
-            <div>
-              <dt className="text-slate-500">Líder</dt>
-              <dd className="font-semibold">{estado.lider ? quem(estado.lider.numero, estado.lider.apelido) : '—'}</dd>
-            </div>
-            <div>
-              <dt className="text-slate-500">Lance mínimo</dt>
-              <dd className="font-semibold">{minimo !== null ? reais(minimo) : '—'}</dd>
-            </div>
-            <div>
-              <dt className="text-slate-500">Total de lances</dt>
-              <dd className="font-semibold">{estado.totalLances}</dd>
-            </div>
-          </dl>
+          <VoltarLink para={`/leiloes/${leilaoId}`}>Voltar ao leilão</VoltarLink>
         </div>
+      );
+    }
+    return <SkeletonSala />;
+  }
 
-        <TextoResultado leilao={{ resultado: estado.resultado, eu: { venci: estado.status === 'VENDIDO' && souLider } }} />
+  const restante = new Date(estado.terminoEm).getTime() - agora;
+  const paraAbrir = new Date(estado.inicioEm).getTime() - agora;
+  const urgente = aberto && restante > 0 && restante < 60_000;
+  const quem = (numero: number, apelido: string) => (numero === eu.numero ? `${apelido} (você)` : apelido);
+  const incremento = preco !== null && config ? incrementoAtual(preco, config.incrementos) : 0;
+  const rapidos = minimo !== null && incremento > 0 ? [minimo, minimo + incremento, minimo + incremento * 2] : [];
 
-        {estado.status === 'AGENDADO' && <Aviso tipo="info">A sala abre sozinha no horário. Não precisa recarregar a página.</Aviso>}
+  return (
+    <div className="pagina sala">
+      <div className="sala__trilha">
+        <VoltarLink para={`/leiloes/${leilaoId}`}>Voltar ao leilão</VoltarLink>
+        {eu.papel === 'ESPECTADOR' ? (
+          <Tag type="outline" size="sm">
+            Espectador
+          </Tag>
+        ) : eu.papel === 'COMITENTE' ? (
+          <Tag type="outline" size="sm">
+            Comitente
+          </Tag>
+        ) : (
+          eu.numero !== null && (
+            <Tag type="outline" size="sm">
+              Você é Participante {eu.numero}
+            </Tag>
+          )
+        )}
+      </div>
 
-        {aberto &&
-          (souComitente ? (
-            <Aviso tipo="info">Você é o comitente deste leilão: acompanha a disputa, mas não pode dar lance.</Aviso>
-          ) : (
-            <form onSubmit={enviar} className="space-y-2 rounded-2xl border border-slate-200 bg-white p-5 shadow-sm">
-              <label className="block text-sm font-medium text-slate-700" htmlFor="valor">
-                Seu lance (R$)
-              </label>
-              <div className="flex gap-2">
-                <input id="valor" className={campo} inputMode="decimal" value={valor} onChange={(e) => setValor(e.target.value)} />
-                <button className={botao} disabled={enviando || !conectado || souLider}>
-                  {enviando ? 'Enviando…' : 'Dar lance'}
-                </button>
-              </div>
-              <p className="text-xs text-slate-500">
-                {souLider ? 'Você é o líder. Só precisa dar outro lance se alguém cobrir.' : 'O lance é irrevogável: não dá para desfazer.'}
+      {falha && (
+        <Aviso tipo="erro" titulo="Conexão com a sala" onFechar={() => setFalha('')}>
+          {falha}{' '}
+          <Link className="link-inline" to={`/entrar?volta=/leiloes/${leilaoId}/sala`}>
+            Entrar de novo
+          </Link>
+        </Aviso>
+      )}
+
+      <div className="sala__grade">
+        <section className="sala__item" aria-labelledby="sala-titulo">
+          <GaleriaFotos fotos={item?.item.fotos ?? []} nome={item?.item.nome ?? 'Item do leilão'} compacta />
+          <div className="sala__item-texto">
+            <p className="sala__categoria">{item?.item.categoriaNome ?? 'Leilão'}</p>
+            <h1 id="sala-titulo">{item?.item.nome ?? 'Sala ao vivo'}</h1>
+            <Link className="link-inline" to={`/leiloes/${leilaoId}`}>
+              Ver descrição completa <ArrowRight size={14} aria-hidden="true" />
+            </Link>
+            {item && (
+              <p className="sala__comitente">
+                <User size={14} aria-hidden="true" /> Comitente:{' '}
+                <Link className="link-inline" to={`/comitentes/${item.comitente.id}`}>
+                  {item.comitente.nome}
+                </Link>
               </p>
-            </form>
-          ))}
-        {retorno && <Aviso tipo={retorno.tipo}>{retorno.texto}</Aviso>}
+            )}
+            {item?.item.descricao && <p className="sala__descricao">{item.item.descricao}</p>}
+            <dl className="sala__ficha">
+              <div>
+                <dt>Início</dt>
+                <dd>{dataHora(estado.inicioEm)}</dd>
+              </div>
+              <div>
+                <dt>Término{estado.prorrogado ? ' (prorrogado)' : ''}</dt>
+                <dd>{dataHora(estado.terminoEm)}</dd>
+              </div>
+            </dl>
+            <p className="sala__regra">
+              O relógio que vale é o do servidor. Um lance nos últimos 2 minutos prorroga o término, até o limite de 30
+              minutos acumulados.
+            </p>
+          </div>
+        </section>
 
-        <section className="rounded-2xl border border-slate-200 bg-white p-5 shadow-sm">
-          <h2 className="mb-2 text-sm font-semibold text-slate-700">Últimos lances</h2>
-          {estado.ultimosLances.length === 0 ? (
-            <p className="text-sm text-slate-500">Nenhum lance ainda.</p>
-          ) : (
-            <ol className="divide-y divide-slate-100 text-sm">
-              {estado.ultimosLances.map((l) => (
-                <li key={l.sequencia} className="flex items-center justify-between py-1.5">
-                  <span>{quem(l.numero, l.apelido)}</span>
-                  <span className="font-semibold">{reais(l.valorCentavos)}</span>
-                  <span className="tabular-nums text-slate-500">{hora(l.em)}</span>
-                </li>
-              ))}
-            </ol>
+        <section className="sala__lado" aria-label="Disputa ao vivo">
+          <div className={`sala__painel${urgente ? ' sala__painel--urgente' : ''}`}>
+            <div className="sala__status">
+              <Selo status={estado.status} />
+              <span className={conectado ? 'status-vivo' : 'status-reconectando'} role="status">
+                <span className={`pulso${conectado ? '' : ' pulso--parado'}`} aria-hidden="true" />
+                {conectado ? 'Ao vivo' : 'Reconectando…'}
+              </span>
+            </div>
+
+            <p className="sala__painel-nome">{item?.item.nome ?? 'Leilão ao vivo'}</p>
+
+            <p className="sala__rotulo">{estado.precoAtualCentavos === null ? 'Preço inicial' : 'Preço atual'}</p>
+            <p className="sala__preco">{preco !== null ? reais(preco) : '—'}</p>
+
+            <div className="sala__tempo">
+              <span>{estado.status === 'AGENDADO' ? 'Abre em' : 'Termina em'}</span>
+              <strong className={urgente ? 'sala__tempo--urgente' : ''}>
+                {estado.status === 'AGENDADO'
+                  ? tempoPreciso(paraAbrir)
+                  : aberto
+                    ? restante > 0
+                      ? tempoPreciso(restante)
+                      : 'Encerrando…'
+                    : '—'}
+              </strong>
+            </div>
+
+            <dl className="sala__stats">
+              <div>
+                <dt>
+                  <Trophy size={14} aria-hidden="true" /> Líder
+                </dt>
+                <dd>{estado.lider ? quem(estado.lider.numero, estado.lider.apelido) : '—'}</dd>
+              </div>
+              <div>
+                <dt>Lance mínimo</dt>
+                <dd>{minimo !== null ? reais(minimo) : '—'}</dd>
+              </div>
+              <div>
+                <dt>
+                  <Time size={14} aria-hidden="true" /> Lances
+                </dt>
+                <dd>{estado.totalLances}</dd>
+              </div>
+            </dl>
+
+            {presenca && (
+              <p className="sala__presenca">
+                <span>
+                  <User size={14} aria-hidden="true" /> {presenca.participantes}{' '}
+                  {presenca.participantes === 1 ? 'participante' : 'participantes'}
+                </span>
+                <span>
+                  <View size={14} aria-hidden="true" /> {presenca.espectadores}{' '}
+                  {presenca.espectadores === 1 ? 'espectador' : 'espectadores'}
+                </span>
+              </p>
+            )}
+
+            {estado.prorrogado && (
+              <Tag type="warm-gray" size="sm" className="sala__prorrogado">
+                Término prorrogado
+              </Tag>
+            )}
+          </div>
+
+          <p className="sr-only" aria-live="polite">
+            {estado.lider
+              ? `Líder ${estado.lider.apelido}, preço ${reais(estado.precoAtualCentavos ?? estado.precoInicialCentavos)}.`
+              : 'Nenhum lance ainda.'}
+          </p>
+
+          {superado && (
+            <Aviso tipo="alerta" titulo="Seu lance foi superado" onFechar={() => setSuperado('')}>
+              {superado}
+            </Aviso>
           )}
+
+          <TextoResultado leilao={{ resultado: estado.resultado, eu: { venci: estado.status === 'VENDIDO' && souLider } }} />
+
+          {estado.status === 'AGENDADO' && (
+            <Aviso tipo="info" titulo="A sala abre sozinha">
+              Não precisa recarregar a página. A contagem acima usa o relógio do servidor.
+            </Aviso>
+          )}
+
+          {aberto && souComitente && (
+            <Aviso tipo="info" titulo="Você é o comitente">
+              Acompanhe a disputa. O comitente não pode dar lance no próprio leilão.
+            </Aviso>
+          )}
+
+          {aberto && !souComitente && (
+            <div className="sala__papel">
+              <p>{espectador ? 'Você está assistindo à disputa.' : 'Você está participando da disputa.'}</p>
+              {espectador ? (
+                <Button
+                  kind="primary"
+                  renderIcon={User}
+                  onClick={() => void mudarPapel('PARTICIPANTE')}
+                  disabled={mudandoPapel || !conectado}
+                >
+                  {mudandoPapel ? 'Entrando…' : 'Participar do leilão'}
+                </Button>
+              ) : (
+                <Button
+                  kind="ghost"
+                  renderIcon={View}
+                  onClick={() => void mudarPapel('ESPECTADOR')}
+                  disabled={mudandoPapel || !conectado}
+                >
+                  {mudandoPapel ? 'Mudando…' : 'Assistir sem dar lance'}
+                </Button>
+              )}
+            </div>
+          )}
+
+          {aberto && !souComitente && espectador && (
+            <Aviso tipo="info" titulo="Modo espectador">
+              Você acompanha preço, lances e presença em tempo real. Para dar lance, entre na disputa.
+            </Aviso>
+          )}
+
+          {aberto && !souComitente && !espectador && (
+            <form className="lance" onSubmit={enviar} noValidate>
+              <div className="lance__cabecalho">
+                <h2>Seu lance</h2>
+                {minimo !== null && <span>Mínimo {reais(minimo)}</span>}
+              </div>
+
+              <TextInput
+                id="valor"
+                labelText="Valor em reais"
+                placeholder={minimo !== null ? centavosParaTexto(minimo) : '150,00'}
+                value={valor}
+                onChange={(e) => setValor(e.target.value)}
+                invalid={valorInvalido}
+                invalidText={`O lance mínimo agora é ${minimo !== null ? reais(minimo) : ''}.`}
+                helperText="Use vírgula para os centavos. O valor é conferido pelo servidor."
+                disabled={enviando || !conectado}
+              />
+
+              {rapidos.length > 0 && (
+                <div className="lance__rapidos" aria-label="Sugestões de lance">
+                  {rapidos.map((v, i) => (
+                    <Button
+                      key={v}
+                      type="button"
+                      size="sm"
+                      kind={i === 0 ? 'primary' : 'tertiary'}
+                      onClick={() => usarValor(v)}
+                      disabled={enviando || !conectado}
+                    >
+                      {i === 0 ? 'Mínimo' : `+${reais(v - (minimo ?? 0))}`} ({reais(v)})
+                    </Button>
+                  ))}
+                </div>
+              )}
+
+              <Button
+                type="submit"
+                kind="primary"
+                renderIcon={ArrowRight}
+                disabled={enviando || !conectado || souLider || valorInvalido}
+                className="lance__enviar"
+              >
+                {enviando ? 'Enviando…' : souLider ? 'Você é o líder' : 'Dar lance'}
+              </Button>
+
+              <p className="lance__nota">
+                {souLider
+                  ? 'Você lidera. Só precisa dar outro lance se alguém cobrir.'
+                  : 'O lance é irrevogável: não existe desfazer. Quem chega primeiro tem prioridade.'}
+              </p>
+
+              {retorno && (
+                <Aviso tipo={retorno.tipo} titulo={retorno.tipo === 'ok' ? 'Lance aceito' : undefined} onFechar={() => setRetorno(null)}>
+                  {retorno.texto}
+                  {retorno.detalhe ? ` ${retorno.detalhe}` : ''}
+                </Aviso>
+              )}
+            </form>
+          )}
+
+          {estado.status !== 'EM_ANDAMENTO' && estado.status !== 'AGENDADO' && (
+            <Button as={Link} to={`/leiloes/${leilaoId}`} kind="tertiary" renderIcon={Renew}>
+              Ver detalhes do leilão
+            </Button>
+          )}
+
+          <section className="lances" aria-labelledby="titulo-lances">
+            <div className="lances__cabecalho">
+              <h2 id="titulo-lances">Últimos lances</h2>
+              <span>{estado.ultimosLances.length} de {estado.totalLances}</span>
+            </div>
+            {estado.ultimosLances.length === 0 ? (
+              <p className="lances__vazio">Nenhum lance ainda. O primeiro pode ser igual ao preço inicial.</p>
+            ) : (
+              <ol className="lances__lista">
+                {estado.ultimosLances.map((l) => (
+                  <li key={l.sequencia} className={l.numero === eu.numero ? 'lances__linha lances__linha--eu' : 'lances__linha'}>
+                    <span className="lances__pessoa">
+                      <span className="lances__ordem">{l.sequencia}º</span>
+                      {quem(l.numero, l.apelido)}
+                    </span>
+                    <span className="lances__valor">{reais(l.valorCentavos)}</span>
+                    <span className="lances__hora">{hora(l.em)}</span>
+                  </li>
+                ))}
+              </ol>
+            )}
+          </section>
         </section>
       </div>
     </div>

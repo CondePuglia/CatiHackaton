@@ -60,6 +60,133 @@ export async function api<T = any>(
 }
 
 // ---------------------------------------------------------------------------
+// Tipos do domínio
+// ---------------------------------------------------------------------------
+export type Status = 'AGENDADO' | 'EM_ANDAMENTO' | 'VENDIDO' | 'ENCERRADO_SEM_LANCES' | 'CANCELADO';
+
+export type Resumo = {
+  id: number;
+  status: Status;
+  item: { id: number; nome: string; categoria: string; categoriaNome: string; fotoUrl: string | null };
+  comitente: { id: number; nome: string };
+  precoInicialCentavos: number;
+  precoAtualCentavos: number | null;
+  lanceMinimoCentavos: number;
+  totalLances: number;
+  inicioEm: string;
+  terminoEm: string;
+  prorrogado: boolean;
+  encerradoEm: string | null;
+};
+
+export type Leilao = {
+  id: number;
+  status: Status;
+  versao: number;
+  item: {
+    id: number;
+    nome: string;
+    descricao: string;
+    categoria: string;
+    categoriaNome: string;
+    fotos: Array<{ id: number; url: string }>;
+  };
+  comitente: { id: number; nome: string; desde: string };
+  precoInicialCentavos: number;
+  precoAtualCentavos: number | null;
+  lanceMinimoCentavos: number;
+  totalLances: number;
+  inicioEm: string;
+  terminoEm: string;
+  terminoOriginalEm: string;
+  prorrogado: boolean;
+  abertoEm: string | null;
+  encerradoEm: string | null;
+  criadoEm: string;
+  lider: { numero: number; apelido: string } | null;
+  resultado: any;
+  agora: string;
+  eu:
+    | {
+        souComitente: boolean;
+        souLider: boolean;
+        numero: number | null;
+        venci: boolean;
+        podeCancelar: boolean;
+        vencedorNome: string | null;
+        edicao?: 'TUDO' | 'ACRESCENTAR_DESCRICAO' | 'NADA';
+        podeRelistar?: boolean;
+      }
+    | null;
+};
+
+export type EstadoSala = {
+  leilaoId: number;
+  versao: number;
+  status: Status;
+  agora: string;
+  inicioEm: string;
+  terminoEm: string;
+  terminoOriginalEm: string;
+  prorrogado: boolean;
+  precoInicialCentavos: number;
+  precoAtualCentavos: number | null;
+  lanceMinimoCentavos: number | null;
+  totalLances: number;
+  lider: { numero: number; apelido: string } | null;
+  ultimosLances: Array<{ sequencia: number; numero: number; apelido: string; valorCentavos: number; em: string }>;
+  resultado: any;
+  presenca?: { participantes: number; espectadores: number };
+};
+
+export type SituacaoParticipacao = 'LIDER' | 'SUPERADO' | 'VENCEDOR' | 'NAO_VENCEU';
+
+export type Participacao = {
+  leilaoId: number;
+  status: Status;
+  item: { nome: string; fotoUrl: string | null };
+  situacao: SituacaoParticipacao;
+  meuMaiorLanceCentavos: number;
+  meusLances: number;
+  precoAtualCentavos: number;
+  totalLances: number;
+  terminoEm: string;
+  encerradoEm: string | null;
+};
+
+export type ComitenteResumo = { id: number; nome: string; desde: string; leiloes: number };
+
+export type PerfilComitente = {
+  comitente: { id: number; nome: string; desde: string };
+  agendados: Resumo[];
+  emAndamento: Resumo[];
+  passados: { leiloes: Resumo[]; pagina: number; porPagina: number; total: number };
+  agora: string;
+};
+
+export type FaixaIncremento = { ateCentavos: number | null; incrementoCentavos: number };
+
+export type Config = {
+  agora: string;
+  categorias: Array<{ id: string; nome: string }>;
+  limites: {
+    nomeItem: { min: number; max: number };
+    descricao: { min: number; max: number };
+    fotos: { min: number; max: number; tamanhoMaxBytes: number; tipos: string[] };
+    precoInicialCentavos: { min: number; max: number };
+    antecedenciaSegundos: { min: number; max: number };
+    duracaoSegundos: { min: number; max: number };
+    nomeUsuario: { min: number; max: number };
+    senha: { min: number };
+  };
+  prorrogacao: { janelaSegundos: number; maximoSegundos: number };
+  incrementos: FaixaIncremento[];
+  lances: { recentes: number; intervaloMinimoMs: number };
+  edicao: { bloqueioSegundos: number };
+  sessao: { inatividadeSegundos: number; maximoSegundos: number };
+};
+
+// ---------------------------------------------------------------------------
 // Sessão
 // ---------------------------------------------------------------------------
 export type Usuario = { id: number; nome: string; email: string };
@@ -103,11 +230,12 @@ export function paraCentavos(texto: string): number | null {
 export const centavosParaTexto = (centavos: number) =>
   `${Math.floor(centavos / 100).toLocaleString('pt-BR')},${String(centavos % 100).padStart(2, '0')}`;
 
-const formatoData = new Intl.DateTimeFormat('pt-BR', { dateStyle: 'short', timeStyle: 'medium' });
+const formatoData = new Intl.DateTimeFormat('pt-BR', { dateStyle: 'short', timeStyle: 'short' });
 export const dataHora = (iso: string) => formatoData.format(new Date(iso));
 export const hora = (iso: string) => new Date(iso).toLocaleTimeString('pt-BR');
 export const fusoLocal = Intl.DateTimeFormat().resolvedOptions().timeZone;
 
+/** Contagem compacta para cartões: "2d 04h", "1h 05min", "03:42". */
 export function tempo(ms: number): string {
   const s = Math.max(0, Math.ceil(ms / 1000));
   const d = Math.floor(s / 86400);
@@ -119,57 +247,76 @@ export function tempo(ms: number): string {
   return `${dois(m)}:${dois(s % 60)}`;
 }
 
-// ---------------------------------------------------------------------------
-// Componentes pequenos
-// ---------------------------------------------------------------------------
-const ROTULOS: Record<string, [string, string]> = {
-  AGENDADO: ['Agendado', 'bg-sky-100 text-sky-800'],
-  EM_ANDAMENTO: ['Em andamento', 'bg-emerald-100 text-emerald-800'],
-  VENDIDO: ['Vendido', 'bg-violet-100 text-violet-800'],
-  ENCERRADO_SEM_LANCES: ['Encerrado sem lances', 'bg-slate-200 text-slate-700'],
-  CANCELADO: ['Cancelado', 'bg-rose-100 text-rose-800'],
+/** Contagem de sala: sempre precisa no último dia, com segundos. */
+export function tempoPreciso(ms: number): string {
+  const s = Math.max(0, Math.ceil(ms / 1000));
+  const d = Math.floor(s / 86400);
+  const h = Math.floor((s % 86400) / 3600);
+  const m = Math.floor((s % 3600) / 60);
+  const seg = s % 60;
+  const dois = (n: number) => String(n).padStart(2, '0');
+  if (d > 0) return `${d}d ${dois(h)}h`;
+  if (h > 0) return `${dois(h)}:${dois(m)}:${dois(seg)}`;
+  return `${dois(m)}:${dois(seg)}`;
+}
+
+export const STATUS: Record<Status, { rotulo: string; tag: 'blue' | 'green' | 'purple' | 'gray' | 'red'; final: boolean }> = {
+  AGENDADO: { rotulo: 'Agendado', tag: 'blue', final: false },
+  EM_ANDAMENTO: { rotulo: 'Em andamento', tag: 'green', final: false },
+  VENDIDO: { rotulo: 'Vendido', tag: 'purple', final: true },
+  ENCERRADO_SEM_LANCES: { rotulo: 'Encerrado sem lances', tag: 'gray', final: true },
+  CANCELADO: { rotulo: 'Cancelado', tag: 'red', final: true },
 };
 
-export function Selo({ status }: { status: string }) {
-  const [rotulo, cor] = ROTULOS[status] ?? [status, 'bg-slate-200'];
-  return <span className={`inline-block rounded-full px-2.5 py-0.5 text-xs font-semibold ${cor}`}>{rotulo}</span>;
+export const infoStatus = (status: string) => STATUS[status as Status] ?? { rotulo: status, tag: 'gray' as const, final: true };
+
+/** RF14: mesma tabela do servidor; `ateCentavos` é exclusivo. */
+export function incrementoAtual(precoCentavos: number, faixas: FaixaIncremento[]): number {
+  for (const faixa of faixas) {
+    if (faixa.ateCentavos === null || precoCentavos < faixa.ateCentavos) return faixa.incrementoCentavos;
+  }
+  return faixas[faixas.length - 1]?.incrementoCentavos ?? 0;
 }
 
-/** "Abre em 01:30" / "Termina em 00:42", sempre pelo relógio do servidor. */
-export function Contador({ status, inicioEm, terminoEm }: { status: string; inicioEm: string; terminoEm: string }) {
-  const agora = useAgora();
-  if (status === 'AGENDADO') return <>Abre em {tempo(new Date(inicioEm).getTime() - agora)}</>;
-  if (status === 'EM_ANDAMENTO') return <>Termina em {tempo(new Date(terminoEm).getTime() - agora)}</>;
-  return null;
+// ---------------------------------------------------------------------------
+// Pequenos ganchos de tela
+// ---------------------------------------------------------------------------
+export function useTitulo(titulo: string) {
+  useEffect(() => {
+    document.title = `${titulo} | Cati Leilões`;
+  }, [titulo]);
 }
 
-export function Aviso({ tipo = 'erro', children }: { tipo?: 'erro' | 'ok' | 'info'; children: ReactNode }) {
-  const cor = {
-    erro: 'border-rose-200 bg-rose-50 text-rose-800',
-    ok: 'border-emerald-200 bg-emerald-50 text-emerald-800',
-    info: 'border-sky-200 bg-sky-50 text-sky-800',
-  }[tipo];
-  return (
-    <div role={tipo === 'erro' ? 'alert' : 'status'} className={`rounded-lg border px-4 py-3 text-sm ${cor}`}>
-      {children}
-    </div>
-  );
+export function useConfig() {
+  const [config, setConfig] = useState<Config | null>(null);
+  const [erro, setErro] = useState('');
+  useEffect(() => {
+    let vivo = true;
+    api<Config>('/config')
+      .then((c) => vivo && setConfig(c))
+      .catch((e) => vivo && setErro(e.message));
+    return () => {
+      vivo = false;
+    };
+  }, []);
+  return { config, erro };
 }
 
-export const botao =
-  'inline-flex items-center justify-center rounded-lg bg-indigo-600 px-4 py-2 text-sm font-semibold text-white hover:bg-indigo-700 disabled:cursor-not-allowed disabled:opacity-50';
-export const botaoSecundario =
-  'inline-flex items-center justify-center rounded-lg border border-slate-300 bg-white px-4 py-2 text-sm font-semibold text-slate-700 hover:bg-slate-50 disabled:opacity-50';
-export const campo =
-  'w-full rounded-lg border border-slate-300 bg-white px-3 py-2 text-sm focus:border-indigo-500 focus:outline-none focus:ring-2 focus:ring-indigo-200';
-
-export function Campo({ rotulo, erro, dica, children }: { rotulo: string; erro?: string; dica?: string; children: ReactNode }) {
-  return (
-    <label className="block">
-      <span className="mb-1 block text-sm font-medium text-slate-700">{rotulo}</span>
-      {children}
-      {dica && !erro && <span className="mt-1 block text-xs text-slate-500">{dica}</span>}
-      {erro && <span className="mt-1 block text-xs font-medium text-rose-700">{erro}</span>}
-    </label>
-  );
+/** Estado do sistema para o rodapé; não é decoração: é o /api/saude. */
+export function useSaude(intervaloMs = 30_000) {
+  const [noAr, setNoAr] = useState<boolean | null>(null);
+  useEffect(() => {
+    let vivo = true;
+    const consultar = () =>
+      api<{ ok: boolean; agora: string }>('/saude')
+        .then((r) => vivo && setNoAr(Boolean(r.ok)))
+        .catch(() => vivo && setNoAr(false));
+    void consultar();
+    const t = setInterval(consultar, intervaloMs);
+    return () => {
+      vivo = false;
+      clearInterval(t);
+    };
+  }, [intervaloMs]);
+  return noAr;
 }
