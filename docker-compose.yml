@@ -21,6 +21,9 @@ x-backend: &backend
   depends_on:
     db:
       condition: service_healthy
+  # Modo ARMAZENAMENTO=disco: a pasta do host fica visível para API e seed.
+  volumes:
+    - ${PASTA_FOTOS_HOST:-./dados/fotos}:${PASTA_FOTOS:-/dados/fotos}
 
 services:
   db:

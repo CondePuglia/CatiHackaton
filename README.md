@@ -17,7 +17,13 @@ Tudo sobe com Docker Compose. Só o proxy publica porta.
 | `api` | Node 22, Fastify, Socket.IO | HTTP e sala em tempo real. Não guarda estado em memória. |
 | `worker` | mesmo código da API | Abre e fecha leilões lendo do banco, duas vezes por segundo. |
 | `db` | PostgreSQL 16 | Fonte única da verdade e barramento de eventos (LISTEN/NOTIFY). |
-| `minio` | S3 local (perfil `local`) | Só no computador. Na VM, as fotos vão para o serviço de armazenamento da organização. |
+| `minio` | S3 local (perfil `local`) | Opcional. A VM pode usar `ARMAZENAMENTO=disco` (pasta) ou um S3 externo. |
+
+As fotos (RF07) ficam no destino escolhido por `ARMAZENAMENTO`:
+
+- `s3` (padrão): bucket compatível com S3, como o MinIO no perfil `local` ou um serviço externo.
+- `disco`: uma pasta no servidor, montada pelo Compose a partir de `PASTA_FOTOS_HOST`. Não usa S3,
+  MinIO nem serviço pago.
 
 ## Como recriar do zero
 
@@ -32,6 +38,27 @@ docker compose run --rm api node dist/seed.js     # dados de demonstração
 ```
 
 Abra `http://localhost:8080` (ou `http://IP_DA_VM:PORTA_PUBLICA`).
+
+Para gravar as fotos em uma pasta em vez de S3, além de `PORTA_PUBLICA`, no `.env`:
+
+```env
+ARMAZENAMENTO=disco
+PASTA_FOTOS=/dados/fotos
+PASTA_FOTOS_HOST=./dados/fotos
+# remova COMPOSE_PROFILES=local e as variáveis S3_*
+```
+
+Crie a pasta antes de subir (o contêiner roda como UID 1000; ajuste o dono se precisar):
+
+```bash
+mkdir -p dados/fotos
+# sudo chown -R 1000:1000 dados/fotos
+docker compose up -d --build
+ls -R dados/fotos
+```
+
+Se a pasta precisar ficar fora da VM, monte um NFS/SMB e aponte `PASTA_FOTOS_HOST` para o
+ponto de montagem (ex.: `/mnt/imagens`); o caminho dentro do contêiner continua `PASTA_FOTOS`.
 
 Para iterar nas telas sem rebuildar o Docker:
 
@@ -82,7 +109,7 @@ $C down -v
 |---|---|---|
 | RF02 sessão | Token aleatório em cookie HttpOnly, guardado no banco só como hash. 2 h sem uso, renova a cada uso, teto de 24 h. | Vale em qualquer instância, sobrevive a reinício e dá para encerrar no servidor. |
 | RF05 limites | Nome 3–80, descrição 10–2000, 3–8 fotos, antecedência 30 s–30 dias, duração 1 min–7 dias; oito categorias fixas. | Valores de demo. Todos são variáveis de ambiente (RF06) e a tela lê os mesmos números da API. |
-| RF07 fotos | JPEG, PNG e WebP até 5 MB, validadas pelos bytes iniciais; enviadas ao bucket pela API, em memória. | O nome e o tipo declarados pelo navegador não são confiáveis; nada toca o disco da VM. |
+| RF07 fotos | JPEG, PNG e WebP até 5 MB, validadas pelos bytes iniciais; a API recebe em memória e grava no destino configurado (`s3` ou `disco`). | O nome e o tipo declarados pelo navegador não são confiáveis. No modo `s3`, nada toca o disco da VM; no modo `disco`, os arquivos ficam na pasta montada. |
 | RF09 tempo real | Socket.IO; a sala recebe a fotografia completa a cada mudança, com os 10 últimos lances. | Traz salas, confirmação de entrega e reconexão prontas; fotografia inteira dispensa conciliar diferenças. |
 | RF09 líder | Cada pessoa é "Participante N" naquele leilão, pela ordem de entrada na disputa. | Dá para acompanhar quem cobre quem sem expor nome. Só o comitente vê o nome do comprador, depois de vendido. |
 | RF11 concorrência | Uma transação por lance com `SELECT ... FOR UPDATE` na linha do leilão. | Lances no mesmo leilão formam fila no banco; leilões diferentes não se bloqueiam; funciona com várias instâncias. |

@@ -28,6 +28,15 @@ function booleano(nome: string, padrao: boolean): boolean {
   return ['1', 'true', 'sim', 'yes'].includes(bruto.trim().toLowerCase());
 }
 
+/** RF07: `s3` usa um bucket compatível com S3; `disco` grava numa pasta do servidor. */
+function modoArmazenamento(): 's3' | 'disco' {
+  const bruto = texto('ARMAZENAMENTO', 's3').toLowerCase();
+  if (bruto !== 's3' && bruto !== 'disco') {
+    throw new Error(`ARMAZENAMENTO inválido: "${bruto}". Use "s3" ou "disco".`);
+  }
+  return bruto;
+}
+
 const HORA = 3600;
 const DIA = 24 * HORA;
 
@@ -112,8 +121,11 @@ export const config = {
     intervaloMs: numero('WORKER_INTERVALO_MS', 500),
   },
 
-  /** RF07: serviço de armazenamento compatível com S3. */
+  /** RF07: bucket compatível com S3 ou pasta local, escolhido por ARMAZENAMENTO. */
   armazenamento: {
+    modo: modoArmazenamento(),
+    /** Usado apenas no modo `disco`: caminho dentro do contêiner. */
+    pasta: texto('PASTA_FOTOS', '/dados/fotos'),
     bucket: texto('S3_BUCKET', 'leilao-fotos'),
     regiao: texto('AWS_REGION', texto('S3_REGION', 'us-east-1')),
     /** vazio = AWS S3 de verdade; preenchido = MinIO ou outro compatível */
@@ -124,7 +136,7 @@ export const config = {
     chaveSecreta: opcional('AWS_SECRET_ACCESS_KEY'),
     tokenSessao: opcional('AWS_SESSION_TOKEN'),
     criarBucket: booleano('S3_CRIAR_BUCKET', false),
-    prefixo: texto('S3_PREFIXO', 'fotos'),
+    prefixo: texto('ARMAZENAMENTO_PREFIXO', texto('S3_PREFIXO', 'fotos')),
   },
 };
 

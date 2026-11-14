@@ -26,9 +26,17 @@ async function principal(): Promise<void> {
   });
   await escuta.pronto;
 
-  // O bucket não bloqueia a subida: se o armazenamento demorar, só o upload espera.
+  // O armazenamento não bloqueia a subida: se demorar, só o upload espera.
   aguardarArmazenamento()
-    .then(() => app.log.info({ bucket: config.armazenamento.bucket }, 'armazenamento de fotos pronto'))
+    .then(() =>
+      app.log.info(
+        {
+          modo: config.armazenamento.modo,
+          destino: config.armazenamento.modo === 'disco' ? config.armazenamento.pasta : config.armazenamento.bucket,
+        },
+        'armazenamento de fotos pronto',
+      ),
+    )
     .catch((erro) => app.log.error({ erro: (erro as Error).message }, 'armazenamento de fotos indisponível'));
 
   await app.listen({ port: config.porta, host: '0.0.0.0' });
