@@ -11,12 +11,14 @@ import './estilo.css';
 import { Button } from '@carbon/react';
 import { ArrowRight } from '@carbon/icons-react';
 import { ProvedorSessao, useSessao, useTitulo } from './comuns';
+import { ProvedorAvisos } from './avisos';
 import { Cabecalho, EstadoVazio, IrParaConteudo, Rodape } from './ui';
 import { Cadastro, Entrar } from './Conta';
 import { BuscaComitentes, PerfilDoComitente } from './Comitentes';
 import { Detalhe } from './Detalhe';
 import { EditarLeilao, RelistarLeilao } from './GerenciarLeilao';
 import { Listagem } from './Listagem';
+import { Metricas } from './Metricas';
 import { MinhasParticipacoes } from './Participacoes';
 import { MinhaConta } from './MinhaConta';
 import { NovoLeilao } from './NovoLeilao';
@@ -63,6 +65,7 @@ createRoot(document.getElementById('root')!).render(
   <StrictMode>
     <BrowserRouter>
       <ProvedorSessao>
+        <ProvedorAvisos>
         <AoTrocarRota />
         <IrParaConteudo />
         <Cabecalho />
@@ -97,6 +100,14 @@ createRoot(document.getElementById('root')!).render(
             />
             <Route path="/comitentes" element={<BuscaComitentes />} />
             <Route path="/comitentes/:id" element={<PerfilDoComitente />} />
+            <Route
+              path="/metricas"
+              element={
+                <ExigeLogin>
+                  <Metricas />
+                </ExigeLogin>
+              }
+            />
             <Route
               path="/leiloes/novo"
               element={
@@ -134,6 +145,7 @@ createRoot(document.getElementById('root')!).render(
           </Routes>
         </main>
         <Rodape />
+        </ProvedorAvisos>
       </ProvedorSessao>
     </BrowserRouter>
   </StrictMode>,

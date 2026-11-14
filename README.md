@@ -3,7 +3,7 @@
 Plataforma web de leilão em tempo real: o comitente anuncia um item, compradores disputam lances ao
 vivo e o leilão abre e fecha sozinho, com um vencedor.
 
-- **Endereço publicado:** a definir (VM da organização).
+- **Endereço publicado:** a definir (VM da organização). Nesta máquina, a demonstração está em `http://localhost:8080`.
 - **Regras da API:** [docs/API.md](docs/API.md).
 - **Estado:** Núcleo, Nível 2 e Bônus 7.1 completos no back-end e nas telas. Bônus 7.2 (nuvem e operação) completo no back-end e na infraestrutura.
 
@@ -62,7 +62,7 @@ Tudo é ligado pelo `.env`; o comando continua sendo `docker compose up -d --bui
 | HTTPS com domínio | `SITE_ADDRESS=dominio`, `PORTA_PUBLICA=80`, `PORTA_HTTPS=443`, `COOKIE_SEGURO=true`. O Caddy emite e renova o certificado; ele fica no volume `dados_caddy`. | Abrir `https://dominio`. |
 | Banco gerenciado | `COMPOSE_FILE=docker-compose.yml:docker-compose.gerenciado.yml`, `DATABASE_URL` do provedor e `DB_SSL=verificar`. O serviço `db` deixa de subir. | `docker compose ps` sem `db`. |
 | Deploy a cada alteração | `.github/workflows/ci-cd.yml`: todo push roda os testes na pilha inteira; na `main`, entra na VM por SSH e roda `scripts/deploy.sh --atualizar`. | Fazer um commit e acompanhar em Actions. |
-| Registros e métricas | Registros em JSON de todos os serviços (`docker compose logs -f api worker web`), com uma linha por lance. Métricas em `GET /api/metricas`, formato do Prometheus. | `curl /api/metricas` durante a disputa. |
+| Registros e métricas | Registros em JSON de todos os serviços (`docker compose logs -f api worker web`), com uma linha por lance. Métricas em `GET /api/metricas`, formato do Prometheus, e na tela `/metricas`. | Abrir `/metricas` durante a disputa, ou `curl /api/metricas`. |
 | Teste de carga | `npm run carga`: dezenas de compradores dando o mesmo lance ao mesmo tempo, com reenvios; no fim confere o que ficou gravado. | Ver abaixo. |
 
 O deploy automático precisa, no GitHub (Settings → Secrets and variables → Actions), das variáveis
@@ -76,7 +76,9 @@ uma conexão em `LISTEN`) e um usuário que possa criar a extensão `unaccent`.
 ### Métricas
 
 `GET /api/metricas` (com `Authorization: Bearer $METRICAS_TOKEN`, se a variável estiver preenchida).
-Cada coleta cai em uma instância; toda série leva o rótulo `instancia`.
+Cada coleta cai em uma instância; toda série leva o rótulo `instancia`. A tela `/metricas` (login
+necessário) mostra os principais indicadores e as séries brutas para a demo; `curl` e Prometheus
+continuam disponíveis.
 
 | Série | O que mostra |
 |---|---|
@@ -147,6 +149,7 @@ $C down -v
 | RF15 prorrogação | Regra de referência: janela de 2 min, teto de 30 min acumulados. | Dá chance de resposta e tem fim garantido. |
 | RF17/18 automação | Worker separado roda dois `UPDATE` condicionais a cada 500 ms. | Sem timer em memória: reiniciar não perde nada e fechar duas vezes não muda nada. |
 | RF20 listagem | Em andamento primeiro (termina antes vem antes), depois agendados; 12 por página; atualiza sozinha. | Mostra primeiro o que está acabando; paginação aguenta muitos leilões. |
+| RF26 superado | Evento `lance:superado` para o usuário; aviso inline dentro da sala e toast global fora dela. | Cumpre "avisado na hora" esteja na sala, no catálogo ou na conta. |
 | RNF01 organização | Compose com proxy, API, worker e banco; só o proxy publica porta. | Um comando sobe tudo e a superfície exposta é uma porta só. |
 | RF29 pontuação | 50·min(renda/10k,1) + 20·min(dias/180,1) + 15·min(compras/10,1) + 15·min(total/20k,1), em centavos, arredondado no fim. | Regra pura e testável; renda e compras já estavam no banco. |
 | RF30 comitente | Pontuação ≥ 50 habilita a vender; nada de aprovação manual. | Só a pontuação decide, sem fila de análise. |

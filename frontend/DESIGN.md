@@ -99,6 +99,17 @@ Uma casa de leilões que parece uma casa de leilões, não um dashboard genéric
 - Catálogo com fichas de categoria com ícone, chamada no hover do cartão e a faixa "Como funciona" com as três garantias.
 - Fotos de demonstração: o seed desenha a silhueta de cada item em cena de estúdio (`backend/src/png.ts`), em três enquadramentos.
 
+### Avisos globais
+
+- RF26: um socket do usuário fica aberto fora da sala e mostra um toast quando o lance é superado em qualquer página.
+- Dentro da sala, o aviso inline continua sendo a fonte principal; o toast global é suprimido para não duplicar.
+
+### Métricas
+
+- `/metricas` (login necessário) lê `/api/metricas`, destaca 14 indicadores e permite abrir as séries brutas do Prometheus.
+- Quando `METRICAS_TOKEN` está preenchido, a tela pede o token e guarda apenas em `sessionStorage`.
+- Atualiza a cada 5 s; o rodapé também leva para a tela.
+
 ### Conta
 
 - Split screen: painel escuro com a proposta e fatos do produto; formulário branco.

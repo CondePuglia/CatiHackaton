@@ -48,6 +48,8 @@ frontend/
 │   ├── Comitentes.tsx  # busca e perfil público de comitentes
 │   ├── Participacoes.tsx # "Minhas participações" e situação em cada leilão
 │   ├── MinhaConta.tsx  # pontuação (RF29), crédito, reservas e histórico de compras
+│   ├── Metricas.tsx    # painel de /api/metricas para a demo
+│   ├── avisos.tsx      # RF26: toast global de lance superado
 │   ├── Conta.tsx       # entrar/cadastrar e contas de demonstração
 │   └── estilo.css      # tokens, identidade visual, layout e responsivo
 ├── DESIGN.md           # decisões de design e sistema visual
@@ -67,10 +69,12 @@ frontend/
   `lance:superado` e a descrição editada recarrega com `sala:item`.
 - Bônus 7.1: renda mensal no cadastro, pontuação no cabeçalho, "Quero vender" (habilitação com 50 pontos),
   crédito disponível na sala, espectador automático por crédito e reserva indicada em "Minhas participações".
+- Bônus 7.2 na tela: `/metricas` mostra os indicadores de `/api/metricas` e as séries brutas; RF26 usa
+  um socket global para avisar quem foi superado fora da sala.
 
 ## Acessibilidade
 
 - Auditado com `axe-core` (WCAG 2.0 A/AA) em home, detalhe, sala, anúncio, conta, comitentes,
-  perfil, participações, edição, relistagem, cadastro com renda, "Quero vender", crédito e modo
-  espectador: **0 violações** em desktop e mobile.
+  perfil, participações, edição, relistagem, cadastro com renda, "Quero vender", crédito, modo
+  espectador, métricas e aviso global: **0 violações** em desktop e mobile.
 - Foco visível, link "Pular para o conteúdo", labels Carbon, `aria-live` para o resumo da sala, contagem com `aria-label` e respeito a `prefers-reduced-motion`.

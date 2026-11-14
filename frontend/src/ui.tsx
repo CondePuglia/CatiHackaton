@@ -358,6 +358,7 @@ export function Rodape() {
           <Link to="/meus-leiloes">Meus leilões</Link>
           <Link to="/minhas-participacoes">Participações</Link>
           <Link to="/minha-conta">Minha conta</Link>
+          <Link to="/metricas">Métricas</Link>
           <Link to="/leiloes/novo">Anunciar item</Link>
         </nav>
         <div className="rodape__estado" role="status">
