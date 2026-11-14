@@ -3,7 +3,7 @@ import { test } from 'node:test';
 import { detectarImagem } from '../../src/fotos.js';
 import { duracaoLegivel, reais } from '../../src/leiloes.js';
 import { gerarPng } from '../../src/png.js';
-import { apelido, incremento, lanceMinimo, novoTermino, podeCancelar } from '../../src/regras.js';
+import { apelido, incremento, lanceMinimo, novoTermino, podeCancelar, pontuacao } from '../../src/regras.js';
 
 test('RF14: o incremento segue a tabela de referência nas duas bordas de cada faixa', () => {
   const casos: Array<[number, number]> = [
@@ -125,4 +125,47 @@ test('mensagens de prazo ficam legíveis', () => {
   assert.equal(duracaoLegivel(7200), '2 horas');
   assert.equal(duracaoLegivel(604800), '7 dias');
   assert.equal(duracaoLegivel(90), '90 segundos');
+});
+
+test('RF29: pontuação fica entre 0 e 100, com os tetos de cada parcela', () => {
+  const zero = { rendaCentavos: 0, diasDeConta: 0, compras: 0, totalCompradoCentavos: 0 };
+  assert.equal(pontuacao(zero), 0);
+
+  // teto de renda: R$ 10.000 = 1.000.000 centavos
+  assert.equal(pontuacao({ ...zero, rendaCentavos: 1_000_000 }), 50);
+  // teto de idade: 180 dias
+  assert.equal(pontuacao({ ...zero, diasDeConta: 180 }), 20);
+  // teto de compras: 10 compras
+  assert.equal(pontuacao({ ...zero, compras: 10 }), 15);
+  // teto de valor: R$ 20.000 = 2.000.000 centavos
+  assert.equal(pontuacao({ ...zero, totalCompradoCentavos: 2_000_000 }), 15);
+
+  // tudo no teto: 100
+  assert.equal(
+    pontuacao({ rendaCentavos: 10_000_000, diasDeConta: 365, compras: 10, totalCompradoCentavos: 2_000_000 }),
+    100,
+  );
+
+  // passar do teto não passa de 100
+  assert.equal(
+    pontuacao({ rendaCentavos: 999_999_999, diasDeConta: 9999, compras: 999, totalCompradoCentavos: 999_999_999 }),
+    100,
+  );
+});
+
+test('RF29: as parcelas são proporcionais e arredondadas só no fim', () => {
+  // renda de R$ 5.000 (500.000 centavos) = metade do teto -> 25
+  assert.equal(pontuacao({ rendaCentavos: 500_000, diasDeConta: 0, compras: 0, totalCompradoCentavos: 0 }), 25);
+  // 90 dias = metade do teto -> 10
+  assert.equal(pontuacao({ rendaCentavos: 0, diasDeConta: 90, compras: 0, totalCompradoCentavos: 0 }), 10);
+  // 5 compras = metade do teto -> 7.5
+  assert.equal(pontuacao({ rendaCentavos: 0, diasDeConta: 0, compras: 5, totalCompradoCentavos: 0 }), 8);
+  // total de R$ 10.000 (1.000.000 centavos) = metade do teto -> 7.5
+  assert.equal(pontuacao({ rendaCentavos: 0, diasDeConta: 0, compras: 0, totalCompradoCentavos: 1_000_000 }), 8);
+
+  // soma exata em centavos: 25 + 10 + 7.5 + 7.5 = 50
+  assert.equal(
+    pontuacao({ rendaCentavos: 500_000, diasDeConta: 90, compras: 5, totalCompradoCentavos: 1_000_000 }),
+    50,
+  );
 });

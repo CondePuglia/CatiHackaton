@@ -147,8 +147,12 @@ export async function inserirLeilao(
 // Comandos
 // ---------------------------------------------------------------------------
 
-/** RF05: cria o item e o primeiro leilão dele. */
+/** RF05: cria o item e o primeiro leilão dele. Só quem se habilitou (RF30). */
 export async function criarLeilao(usuario: Usuario, corpo: unknown): Promise<number> {
+  if (!usuario.comitenteDesde) {
+    throw proibido('Habilite-se como comitente para anunciar.', 'NAO_HABILITADO');
+  }
+
   const dados = objeto(corpo);
   const agora = await agoraDoBanco();
   const v = new Validador();

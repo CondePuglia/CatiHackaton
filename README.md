@@ -5,7 +5,7 @@ vivo e o leilão abre e fecha sozinho, com um vencedor.
 
 - **Endereço publicado:** a definir (VM da organização).
 - **Regras da API:** [docs/API.md](docs/API.md).
-- **Estado:** Núcleo e Nível 2 completos no back-end e nas telas. Bônus não começou.
+- **Estado:** Núcleo e Nível 2 completos no back-end e nas telas. Bônus completo no back-end (as telas do Bônus ainda não começaram).
 
 ## Arquitetura
 
@@ -68,9 +68,9 @@ lances, vendido, encerrado sem lances e cancelado. `--recriar` apaga tudo e cria
 ```bash
 C="docker compose -p leilao-teste --env-file .env.teste -f docker-compose.yml -f docker-compose.teste.yml"
 $C up -d --build db minio api worker web
-$C run --rm testes npm run test:unidade     # 13 testes: regras puras
-$C run --rm testes npm run test:dominio     # 58 testes: banco e bucket reais, tempo controlado
-$C run --rm testes npm run test:sistema     #  9 testes: pilha em pé, tempo real, pelo proxy
+$C run --rm testes npm run test:unidade     # 15 testes: regras puras
+$C run --rm testes npm run test:dominio     # 73 testes: banco e bucket reais, tempo controlado
+$C run --rm testes npm run test:sistema     # 14 testes: pilha em pé, tempo real, pelo proxy
 $C down -v
 ```
 
@@ -92,8 +92,14 @@ $C down -v
 | RF17/18 automação | Worker separado roda dois `UPDATE` condicionais a cada 500 ms. | Sem timer em memória: reiniciar não perde nada e fechar duas vezes não muda nada. |
 | RF20 listagem | Em andamento primeiro (termina antes vem antes), depois agendados; 12 por página; atualiza sozinha. | Mostra primeiro o que está acabando; paginação aguenta muitos leilões. |
 | RNF01 organização | Compose com proxy, API, worker e banco; só o proxy publica porta. | Um comando sobe tudo e a superfície exposta é uma porta só. |
+| RF29 pontuação | 50·min(renda/10k,1) + 20·min(dias/180,1) + 15·min(compras/10,1) + 15·min(total/20k,1), em centavos, arredondado no fim. | Regra pura e testável; renda e compras já estavam no banco. |
+| RF30 comitente | Pontuação ≥ 50 habilita a vender; nada de aprovação manual. | Só a pontuação decide, sem fila de análise. |
+| RF31 crédito | Limite = renda × 6 × pontuação ÷ 100; reserva = soma dos leilões em andamento que o usuário lidera, calculada na hora. | Sem tabela de reserva: ser superado ou o leilão terminar libera sozinho; vencer vira histórico. |
+| RF31 concorrência | No lance, trava-se o usuário (`FOR NO KEY UPDATE`) antes do leilão, depois confere o crédito. | Dois lances simultâneos do mesmo usuário nunca estouram o limite; a ordem de travas evita impasse. |
+| RF32 espectador | Só participa quem tem crédito ≥ lance mínimo atual; os demais entram assistindo. | Evita lance que nasce inválido; o crédito é reavaliado a cada lance. |
 
 ## O que ficou de fora
 
-- Bônus (pontuação, habilitação de comitente, crédito com reserva e extras de nuvem/operação).
+- Bônus de nuvem/operação (banco gerenciado, HTTPS com domínio, deploy automatizado, várias instâncias, métricas e teste de carga).
+- Telas do Bônus (renda no cadastro, botão "Quero vender", crédito na sala).
 - Limpeza de fotos enviadas e nunca usadas em um leilão.

@@ -101,3 +101,30 @@ export function modoDeEdicao(l: LeilaoParaPermissao, agora: Date, bloqueioSegund
 }
 
 export const apelido = (numero: number): string => `Participante ${numero}`;
+
+// ---------------------------------------------------------------------------
+// Bônus (RF29): pontuação de confiança
+// ---------------------------------------------------------------------------
+
+/** Renda e total entram em centavos; os tetos são os mesmos do documento. */
+export type EntradaPontuacao = {
+  rendaCentavos: number;
+  diasDeConta: number;
+  compras: number;
+  totalCompradoCentavos: number;
+};
+
+/**
+ * RF29: pontuação de 0 a 100.
+ *   50·min(renda/10.000, 1) + 20·min(dias/180, 1)
+ * + 15·min(compras/10, 1)   + 15·min(total/20.000, 1)
+ * A conta é feita em centavos (10.000 reais = 1.000.000 centavos;
+ * 20.000 reais = 2.000.000 centavos) e arredondada só no fim.
+ */
+export function pontuacao(d: EntradaPontuacao): number {
+  const renda = 50 * Math.min(d.rendaCentavos / 1_000_000, 1);
+  const conta = 20 * Math.min(d.diasDeConta / 180, 1);
+  const compras = 15 * Math.min(d.compras / 10, 1);
+  const total = 15 * Math.min(d.totalCompradoCentavos / 2_000_000, 1);
+  return Math.round(renda + conta + compras + total);
+}

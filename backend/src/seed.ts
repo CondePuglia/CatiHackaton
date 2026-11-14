@@ -14,10 +14,10 @@ import { fotoDeDemonstracao, type Cor } from './png.js';
  */
 export const SENHA_DEMO = 'demo1234';
 const CONTAS = [
-  { nome: 'Carla Comitente', email: 'carla@demo.dev' },
-  { nome: 'Ana Compradora', email: 'ana@demo.dev' },
-  { nome: 'Bruno Comprador', email: 'bruno@demo.dev' },
-  { nome: 'Caio Comprador', email: 'caio@demo.dev' },
+  { nome: 'Carla Comitente', email: 'carla@demo.dev', renda: 20_000_00, comitente: true },
+  { nome: 'Ana Compradora', email: 'ana@demo.dev', renda: 15_000_00, comitente: false },
+  { nome: 'Bruno Comprador', email: 'bruno@demo.dev', renda: 3_000_00, comitente: false },
+  { nome: 'Caio Comprador', email: 'caio@demo.dev', renda: 500_00, comitente: false },
 ];
 
 type Lance = { quem: number; valor: number };
@@ -94,9 +94,10 @@ async function principal(): Promise<void> {
     // a primeira compradora ganha uma conta "antiga", útil para regras que dependem da idade da conta
     const idade = i === 1 ? 400 : 0;
     const { rows } = await pool.query(
-      `INSERT INTO usuarios (nome, email, senha_hash, criado_em)
-       VALUES ($1, $2, $3, clock_timestamp() - make_interval(days => $4)) RETURNING id`,
-      [conta.nome, conta.email, senhaHash, idade],
+      `INSERT INTO usuarios (nome, email, senha_hash, renda_mensal_centavos, comitente_desde, criado_em)
+       VALUES ($1, $2, $3, $4, CASE WHEN $5 THEN clock_timestamp() END, clock_timestamp() - make_interval(days => $6))
+       RETURNING id`,
+      [conta.nome, conta.email, senhaHash, conta.renda, conta.comitente, idade],
     );
     ids.push(rows[0].id);
   }

@@ -48,9 +48,23 @@ export async function encerrar(): Promise<void> {
 let contador = 0;
 export const SENHA = 'senha-de-teste';
 
-export async function novoUsuario(nome = 'Pessoa'): Promise<Usuario> {
+export async function novoUsuario(nome = 'Pessoa', rendaCentavos = 100_000_00): Promise<Usuario> {
   contador++;
-  return cadastrar({ nome: `${nome} ${contador}`, email: `u${contador}-${randomUUID()}@teste.dev`, senha: SENHA });
+  return cadastrar({
+    nome: `${nome} ${contador}`,
+    email: `u${contador}-${randomUUID()}@teste.dev`,
+    senha: SENHA,
+    rendaMensalCentavos: rendaCentavos,
+  });
+}
+
+/** RF30: habilita um usuário como comitente (direto no banco, para os testes). */
+export async function habilitarComitente(usuario: Usuario): Promise<void> {
+  await pool.query(
+    `UPDATE usuarios SET comitente_desde = COALESCE(comitente_desde, clock_timestamp()) WHERE id = $1`,
+    [usuario.id],
+  );
+  usuario.comitenteDesde = new Date();
 }
 
 export const pngValido = (): Buffer => gerarPng(8, 8, (x, y) => [x * 30, y * 30, 120]);
@@ -77,6 +91,7 @@ export async function dadosDeLeilao(comitente: Usuario, extras: Record<string, u
 }
 
 export async function novoLeilao(comitente: Usuario, extras: Record<string, unknown> = {}): Promise<number> {
+  await habilitarComitente(comitente);
   return criarLeilao(comitente, await dadosDeLeilao(comitente, extras));
 }
 
