@@ -5,7 +5,7 @@ vivo e o leilão abre e fecha sozinho, com um vencedor.
 
 - **Endereço publicado:** a definir (VM da organização).
 - **Regras da API:** [docs/API.md](docs/API.md).
-- **Estado:** Núcleo completo. Nível 2 pronto no back-end; as telas do Nível 2 estão em aberto. Bônus não começou.
+- **Estado:** Núcleo e Nível 2 completos no back-end e nas telas. Bônus não começou.
 
 ## Arquitetura
 
@@ -32,6 +32,18 @@ docker compose run --rm api node dist/seed.js     # dados de demonstração
 ```
 
 Abra `http://localhost:8080` (ou `http://IP_DA_VM:PORTA_PUBLICA`).
+
+Para iterar nas telas sem rebuildar o Docker:
+
+```bash
+cd frontend
+npm install
+npm run dev
+```
+
+O Vite abre em `http://localhost:5173` e faz proxy de `/api` e `/socket.io` para `http://localhost:8080`.
+Use `API_URL=http://IP:PORTA npm run dev` para apontar para outra instância. As decisões de design e a
+estrutura do frontend estão em [frontend/DESIGN.md](frontend/DESIGN.md) e [frontend/README.md](frontend/README.md).
 
 Para usar o armazenamento da organização em vez do MinIO, no `.env`: apague `COMPOSE_PROFILES=local`,
 deixe `S3_ENDPOINT` vazio para o S3 da AWS, ajuste `S3_BUCKET` e `AWS_REGION`, ponha
@@ -83,6 +95,5 @@ $C down -v
 
 ## O que ficou de fora
 
-- Nível 2 (busca, perfil do comitente, edição, espectador, aviso de lance superado, limite de
-  frequência, "Minhas participações", relistagem) e Bônus.
+- Bônus (pontuação, habilitação de comitente, crédito com reserva e extras de nuvem/operação).
 - Limpeza de fotos enviadas e nunca usadas em um leilão.

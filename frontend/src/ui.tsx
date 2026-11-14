@@ -1,0 +1,488 @@
+import { useEffect, useState, type ReactNode } from 'react';
+import { Link, useLocation } from 'react-router-dom';
+import {
+  Button,
+  Header,
+  HeaderGlobalAction,
+  HeaderGlobalBar,
+  HeaderMenuButton,
+  HeaderMenuItem,
+  HeaderName,
+  HeaderNavigation,
+  InlineNotification,
+  SideNav,
+  SideNavItems,
+  SideNavLink,
+  SkeletonPlaceholder,
+  SkeletonText,
+  Tag,
+} from '@carbon/react';
+import {
+  ArrowLeft,
+  ArrowRight,
+  Catalog,
+  ChevronLeft,
+  ChevronRight,
+  Image as ImageIcon,
+  Logout,
+  Timer,
+} from '@carbon/icons-react';
+import {
+  dataHora,
+  hora,
+  infoStatus,
+  reais,
+  tempo,
+  tempoPreciso,
+  useAgora,
+  useSaude,
+  useSessao,
+  type Resumo,
+  type Status,
+} from './comuns';
+
+// ---------------------------------------------------------------------------
+// Marca e casca do aplicativo
+// ---------------------------------------------------------------------------
+export function Marca({ compacta = false }: { compacta?: boolean }) {
+  return (
+    <Link to="/" className={`marca${compacta ? ' marca--compacta' : ''}`} aria-label="Cati Leilões, início">
+      <span className="marca__nome">Cati</span>
+      <span className="marca__descritor">Leilões</span>
+    </Link>
+  );
+}
+
+function RelogioServidor() {
+  const agora = useAgora();
+  return (
+    <span className="topo__relogio" title="Hora do servidor">
+      <Timer size={16} aria-hidden="true" />
+      <span className="topo__relogio-texto">{new Date(agora).toLocaleTimeString('pt-BR')}</span>
+      <span className="topo__relogio-rotulo">hora do servidor</span>
+    </span>
+  );
+}
+
+export function Cabecalho() {
+  const { usuario, sair } = useSessao();
+  const local = useLocation();
+  const [menuAberto, setMenuAberto] = useState(false);
+
+  useEffect(() => setMenuAberto(false), [local.pathname]);
+
+  const item = ({ isActive }: { isActive: boolean }) => ({ isActive });
+
+  return (
+    <Header aria-label="Cati Leilões" className="topo">
+      <HeaderMenuButton
+        aria-label={menuAberto ? 'Fechar menu' : 'Abrir menu'}
+        isActive={menuAberto}
+        onClick={() => setMenuAberto((v) => !v)}
+      />
+      <HeaderName as={Link} to="/" prefix="Cati">
+        Leilões
+      </HeaderName>
+      <HeaderNavigation aria-label="Navegação principal" className="topo__nav">
+        <HeaderMenuItem as={Link} to="/" {...item({ isActive: local.pathname === '/' })}>
+          Leilões
+        </HeaderMenuItem>
+        <HeaderMenuItem
+          as={Link}
+          to="/comitentes"
+          {...item({ isActive: local.pathname.startsWith('/comitentes') })}
+        >
+          Comitentes
+        </HeaderMenuItem>
+        {usuario && (
+          <>
+            <HeaderMenuItem
+              as={Link}
+              to="/meus-leiloes"
+              {...item({ isActive: local.pathname === '/meus-leiloes' })}
+            >
+              Meus leilões
+            </HeaderMenuItem>
+            <HeaderMenuItem
+              as={Link}
+              to="/minhas-participacoes"
+              {...item({ isActive: local.pathname === '/minhas-participacoes' })}
+            >
+              Participações
+            </HeaderMenuItem>
+            <HeaderMenuItem
+              as={Link}
+              to="/leiloes/novo"
+              {...item({ isActive: local.pathname === '/leiloes/novo' })}
+            >
+              Anunciar item
+            </HeaderMenuItem>
+          </>
+        )}
+      </HeaderNavigation>
+      <HeaderGlobalBar className="topo__acoes">
+        <RelogioServidor />
+        {usuario ? (
+          <>
+            <span className="topo__usuario" title={usuario.email}>
+              {usuario.nome}
+            </span>
+            <HeaderGlobalAction aria-label="Sair da conta" onClick={() => void sair()} tooltipAlignment="end">
+              <Logout size={20} />
+            </HeaderGlobalAction>
+          </>
+        ) : (
+          <Link className="topo__entrar" to="/entrar">
+            Entrar
+          </Link>
+        )}
+      </HeaderGlobalBar>
+      <SideNav
+        aria-label="Menu principal"
+        expanded={menuAberto}
+        isPersistent={false}
+        onOverlayClick={() => setMenuAberto(false)}
+        className="topo__menu-lateral"
+      >
+        <SideNavItems>
+          <SideNavLink as={Link} to="/" isActive={local.pathname === '/'} onClick={() => setMenuAberto(false)}>
+            Leilões
+          </SideNavLink>
+          <SideNavLink
+            as={Link}
+            to="/comitentes"
+            isActive={local.pathname.startsWith('/comitentes')}
+            onClick={() => setMenuAberto(false)}
+          >
+            Comitentes
+          </SideNavLink>
+          {usuario && (
+            <>
+              <SideNavLink
+                as={Link}
+                to="/meus-leiloes"
+                isActive={local.pathname === '/meus-leiloes'}
+                onClick={() => setMenuAberto(false)}
+              >
+                Meus leilões
+              </SideNavLink>
+              <SideNavLink
+                as={Link}
+                to="/minhas-participacoes"
+                isActive={local.pathname === '/minhas-participacoes'}
+                onClick={() => setMenuAberto(false)}
+              >
+                Participações
+              </SideNavLink>
+              <SideNavLink
+                as={Link}
+                to="/leiloes/novo"
+                isActive={local.pathname === '/leiloes/novo'}
+                onClick={() => setMenuAberto(false)}
+              >
+                Anunciar item
+              </SideNavLink>
+            </>
+          )}
+          {!usuario && (
+            <SideNavLink as={Link} to="/entrar" onClick={() => setMenuAberto(false)}>
+              Entrar
+            </SideNavLink>
+          )}
+        </SideNavItems>
+      </SideNav>
+    </Header>
+  );
+}
+
+export function Rodape() {
+  const noAr = useSaude();
+  return (
+    <footer className="rodape">
+      <div className="rodape__interno">
+        <div className="rodape__marca">
+          <Marca compacta />
+          <p>Leilões ao vivo, com lances em tempo real e fechamento automático.</p>
+        </div>
+        <nav className="rodape__links" aria-label="Rodapé">
+          <Link to="/">Leilões</Link>
+          <Link to="/comitentes">Comitentes</Link>
+          <Link to="/meus-leiloes">Meus leilões</Link>
+          <Link to="/minhas-participacoes">Participações</Link>
+          <Link to="/leiloes/novo">Anunciar item</Link>
+        </nav>
+        <div className="rodape__estado" role="status">
+          <Tag type={noAr === false ? 'red' : 'green'} size="sm">
+            {noAr === null ? 'Verificando sistema' : noAr ? 'Sistema no ar' : 'Sistema indisponível'}
+          </Tag>
+          <span>Hackathon Cati, dados de demonstração</span>
+        </div>
+      </div>
+    </footer>
+  );
+}
+
+export function IrParaConteudo() {
+  return (
+    <a className="pular" href="#conteudo">
+      Pular para o conteúdo
+    </a>
+  );
+}
+
+// ---------------------------------------------------------------------------
+// Peças de interface
+// ---------------------------------------------------------------------------
+export function Selo({ status, size = 'sm' }: { status: Status | string; size?: 'sm' | 'md' | 'lg' }) {
+  const info = infoStatus(status);
+  return (
+    <Tag as="span" type={info.tag} size={size}>
+      {info.rotulo}
+    </Tag>
+  );
+}
+
+export function Contador({
+  status,
+  inicioEm,
+  terminoEm,
+  preciso = false,
+  prefixo,
+}: {
+  status: Status | string;
+  inicioEm: string;
+  terminoEm: string;
+  preciso?: boolean;
+  prefixo?: string;
+}) {
+  const agora = useAgora();
+  let alvo: string | null = null;
+  let rotulo = '';
+  if (status === 'AGENDADO') {
+    alvo = inicioEm;
+    rotulo = 'Abre em';
+  } else if (status === 'EM_ANDAMENTO') {
+    alvo = terminoEm;
+    rotulo = 'Termina em';
+  }
+  if (!alvo) return null;
+  const ms = new Date(alvo).getTime() - agora;
+  const texto = ms <= 0 ? 'Encerrando…' : preciso ? tempoPreciso(ms) : tempo(ms);
+  return (
+    <span className="contador" aria-label={`${rotulo} ${dataHora(alvo)}, pelo relógio do servidor`}>
+      {prefixo !== '' && <span className="contador__rotulo">{prefixo ?? rotulo}</span>}
+      <span className={`contador__valor${ms > 0 && ms < 60_000 ? ' contador__valor--urgente' : ''}`}>{texto}</span>
+    </span>
+  );
+}
+
+export function Aviso({
+  tipo = 'erro',
+  titulo,
+  children,
+  onFechar,
+  baixoContraste = true,
+  className,
+}: {
+  tipo?: 'erro' | 'ok' | 'info' | 'alerta';
+  titulo?: string;
+  children?: ReactNode;
+  onFechar?: () => void;
+  baixoContraste?: boolean;
+  className?: string;
+}) {
+  const kind = tipo === 'erro' ? 'error' : tipo === 'ok' ? 'success' : tipo === 'alerta' ? 'warning' : 'info';
+  const padrao = tipo === 'erro' ? 'Não foi possível concluir' : tipo === 'ok' ? 'Tudo certo' : tipo === 'alerta' ? 'Atenção' : 'Informação';
+  return (
+    <InlineNotification
+      className={className}
+      kind={kind}
+      title={titulo ?? padrao}
+      subtitle={typeof children === 'string' ? children : undefined}
+      lowContrast={baixoContraste}
+      hideCloseButton={!onFechar}
+      onCloseButtonClick={onFechar}
+      role={kind === 'error' ? 'alert' : 'status'}
+    >
+      {typeof children === 'string' ? undefined : children}
+    </InlineNotification>
+  );
+}
+
+export function EstadoVazio({
+  titulo,
+  texto,
+  acao,
+}: {
+  titulo: string;
+  texto: string;
+  acao?: ReactNode;
+}) {
+  return (
+    <div className="vazio">
+      <span className="vazio__icone" aria-hidden="true">
+        <Catalog size={32} />
+      </span>
+      <h2>{titulo}</h2>
+      <p>{texto}</p>
+      {acao && <div className="vazio__acao">{acao}</div>}
+    </div>
+  );
+}
+
+export function EsqueletoCartao() {
+  return (
+    <div className="cartao cartao--esqueleto" aria-hidden="true">
+      <SkeletonPlaceholder className="cartao__esqueleto-imagem" />
+      <div className="cartao__corpo">
+        <SkeletonText width="40%" />
+        <SkeletonText heading width="90%" />
+        <SkeletonText width="55%" />
+        <SkeletonText width="70%" />
+      </div>
+    </div>
+  );
+}
+
+export function CartaoLeilao({ leilao, prioridade = false }: { leilao: Resumo; prioridade?: boolean }) {
+  const info = infoStatus(leilao.status);
+  const preco = leilao.precoAtualCentavos ?? leilao.precoInicialCentavos;
+  return (
+    <Link
+      to={`/leiloes/${leilao.id}`}
+      className={`cartao${info.final ? ' cartao--final' : ''}`}
+      aria-label={`${leilao.item.nome}, ${info.rotulo}, ${reais(preco)}`}
+    >
+      <div className="cartao__media">
+        {leilao.item.fotoUrl ? (
+          <img
+            src={leilao.item.fotoUrl}
+            alt=""
+            loading={prioridade ? 'eager' : 'lazy'}
+            className="cartao__imagem"
+          />
+        ) : (
+          <span className="cartao__sem-foto">
+            <ImageIcon size={28} aria-hidden="true" />
+            <span>Sem foto</span>
+          </span>
+        )}
+        <span className="cartao__selo">
+          <Selo status={leilao.status} />
+        </span>
+      </div>
+      <div className="cartao__corpo">
+        <p className="cartao__categoria">{leilao.item.categoriaNome}</p>
+        <h3 className="cartao__titulo">{leilao.item.nome}</h3>
+        <p className="cartao__preco">{reais(preco)}</p>
+        <div className="cartao__meta">
+          <Contador status={leilao.status} inicioEm={leilao.inicioEm} terminoEm={leilao.terminoEm} />
+          <span>
+            {leilao.totalLances} {leilao.totalLances === 1 ? 'lance' : 'lances'}
+          </span>
+        </div>
+        <p className="cartao__comitente">Comitente: {leilao.comitente.nome}</p>
+      </div>
+    </Link>
+  );
+}
+
+export function GaleriaFotos({
+  fotos,
+  nome,
+  compacta = false,
+}: {
+  fotos: Array<{ id: number; url: string }>;
+  nome: string;
+  compacta?: boolean;
+}) {
+  const [atual, setAtual] = useState(0);
+  useEffect(() => {
+    setAtual((i) => Math.min(i, Math.max(0, fotos.length - 1)));
+  }, [fotos.length]);
+
+  if (fotos.length === 0) {
+    return (
+      <div className={`galeria galeria--vazia${compacta ? ' galeria--compacta' : ''}`}>
+        <span>
+          <ImageIcon size={36} aria-hidden="true" />
+          <span>Sem fotos deste item</span>
+        </span>
+      </div>
+    );
+  }
+
+  const foto = fotos[Math.min(atual, fotos.length - 1)];
+  const ir = (delta: number) => setAtual((i) => (i + delta + fotos.length) % fotos.length);
+
+  return (
+    <div className={`galeria${compacta ? ' galeria--compacta' : ''}`}>
+      <div className="galeria__principal">
+        <img src={foto.url} alt={`${nome}, foto ${atual + 1} de ${fotos.length}`} className="galeria__imagem" />
+        {fotos.length > 1 && (
+          <>
+            <Button
+              className="galeria__seta galeria__seta--esquerda"
+              kind="ghost"
+              size="sm"
+              hasIconOnly
+              renderIcon={ChevronLeft}
+              iconDescription="Foto anterior"
+              onClick={() => ir(-1)}
+            />
+            <Button
+              className="galeria__seta galeria__seta--direita"
+              kind="ghost"
+              size="sm"
+              hasIconOnly
+              renderIcon={ChevronRight}
+              iconDescription="Próxima foto"
+              onClick={() => ir(1)}
+            />
+          </>
+        )}
+        <span className="galeria__contagem">
+          {atual + 1} / {fotos.length}
+        </span>
+      </div>
+      {fotos.length > 1 && (
+        <div className="galeria__miniaturas">
+          {fotos.map((f, i) => (
+            <button
+              key={f.id}
+              type="button"
+              aria-label={`Ver foto ${i + 1}`}
+              aria-pressed={i === atual}
+              className={`galeria__miniatura${i === atual ? ' galeria__miniatura--ativa' : ''}`}
+              onClick={() => setAtual(i)}
+            >
+              <img src={f.url} alt="" />
+            </button>
+          ))}
+        </div>
+      )}
+    </div>
+  );
+}
+
+export function VoltarLink({ para, children = 'Voltar' }: { para: string; children?: ReactNode }) {
+  return (
+    <Link className="voltar" to={para}>
+      <ArrowLeft size={16} aria-hidden="true" />
+      {children}
+    </Link>
+  );
+}
+
+export function LinkSeta({ para, children }: { para: string; children: ReactNode }) {
+  return (
+    <Link className="link-seta" to={para}>
+      {children}
+      <ArrowRight size={16} aria-hidden="true" />
+    </Link>
+  );
+}
+
+export function Hora({ iso }: { iso: string }) {
+  return <span className="hora">{hora(iso)}</span>;
+}

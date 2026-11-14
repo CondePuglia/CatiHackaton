@@ -1,87 +1,130 @@
-import { StrictMode } from 'react';
+import { StrictMode, useEffect, type ReactNode } from 'react';
 import { createRoot } from 'react-dom/client';
-import { BrowserRouter, Link, NavLink, Navigate, Route, Routes, useLocation } from 'react-router-dom';
-import { ProvedorSessao, botaoSecundario, useSessao } from './comuns';
+import { BrowserRouter, Link, Navigate, Route, Routes, useLocation } from 'react-router-dom';
+import '@fontsource/ibm-plex-sans/latin-400.css';
+import '@fontsource/ibm-plex-sans/latin-500.css';
+import '@fontsource/ibm-plex-sans/latin-600.css';
+import '@fontsource/ibm-plex-serif/latin-400.css';
+import '@fontsource/ibm-plex-serif/latin-600.css';
+import '@carbon/styles/css/styles.css';
+import './estilo.css';
+import { Button } from '@carbon/react';
+import { ArrowRight } from '@carbon/icons-react';
+import { ProvedorSessao, useSessao, useTitulo } from './comuns';
+import { Cabecalho, EstadoVazio, IrParaConteudo, Rodape } from './ui';
 import { Cadastro, Entrar } from './Conta';
+import { BuscaComitentes, PerfilDoComitente } from './Comitentes';
 import { Detalhe } from './Detalhe';
+import { EditarLeilao, RelistarLeilao } from './GerenciarLeilao';
 import { Listagem } from './Listagem';
+import { MinhasParticipacoes } from './Participacoes';
 import { NovoLeilao } from './NovoLeilao';
 import { Sala } from './Sala';
-import './estilo.css';
-
-function Topo() {
-  const { usuario, sair } = useSessao();
-  const item = ({ isActive }: { isActive: boolean }) =>
-    `text-sm font-medium ${isActive ? 'text-indigo-700' : 'text-slate-600 hover:text-slate-900'}`;
-  return (
-    <header className="border-b border-slate-200 bg-white">
-      <div className="mx-auto flex max-w-6xl flex-wrap items-center gap-x-6 gap-y-2 px-4 py-3">
-        <Link to="/" className="text-lg font-bold text-indigo-700">
-          Leilão ao vivo
-        </Link>
-        <nav className="flex flex-1 flex-wrap items-center gap-4">
-          <NavLink to="/" end className={item}>
-            Leilões
-          </NavLink>
-          {usuario && (
-            <>
-              <NavLink to="/meus-leiloes" className={item}>
-                Meus leilões
-              </NavLink>
-              <NavLink to="/leiloes/novo" className={item}>
-                Anunciar item
-              </NavLink>
-            </>
-          )}
-        </nav>
-        {usuario ? (
-          <div className="flex items-center gap-3 text-sm">
-            <span className="text-slate-600">Olá, {usuario.nome}</span>
-            <button className={botaoSecundario} onClick={() => void sair()}>
-              Sair
-            </button>
-          </div>
-        ) : usuario === null ? (
-          <div className="flex items-center gap-3">
-            <Link to="/entrar" className={botaoSecundario}>
-              Entrar
-            </Link>
-            <Link to="/cadastro" className="text-sm font-semibold text-indigo-700">
-              Criar conta
-            </Link>
-          </div>
-        ) : null}
-      </div>
-    </header>
-  );
-}
 
 /** RF04: a sala e as ações de comitente exigem login; a listagem não. */
-function ExigeLogin({ children }: { children: JSX.Element }) {
+function ExigeLogin({ children }: { children: ReactNode }) {
   const { usuario } = useSessao();
   const local = useLocation();
-  if (usuario === undefined) return <p className="p-8 text-sm text-slate-500">Carregando…</p>;
-  if (usuario === null) return <Navigate to={`/entrar?volta=${encodeURIComponent(local.pathname)}`} replace />;
-  return children;
+  if (usuario === undefined) return <p className="carregando">Carregando…</p>;
+  if (usuario === null) {
+    const volta = encodeURIComponent(`${local.pathname}${local.search}`);
+    return <Navigate to={`/entrar?volta=${volta}`} replace />;
+  }
+  return <>{children}</>;
+}
+
+function AoTrocarRota() {
+  const { pathname } = useLocation();
+  useEffect(() => {
+    window.scrollTo(0, 0);
+  }, [pathname]);
+  return null;
+}
+
+function NaoEncontrado() {
+  useTitulo('Página não encontrada');
+  return (
+    <div className="pagina pagina--estreita">
+      <EstadoVazio
+        titulo="Esta página não existe"
+        texto="O endereço pode estar errado ou o leilão pode ter saído do catálogo."
+        acao={
+          <Button as={Link} to="/" kind="primary" renderIcon={ArrowRight}>
+            Ver leilões
+          </Button>
+        }
+      />
+    </div>
+  );
 }
 
 createRoot(document.getElementById('root')!).render(
   <StrictMode>
     <BrowserRouter>
       <ProvedorSessao>
-        <Topo />
-        <main className="mx-auto max-w-6xl px-4 py-6">
+        <AoTrocarRota />
+        <IrParaConteudo />
+        <Cabecalho />
+        <main id="conteudo" className="conteudo">
           <Routes>
             <Route path="/" element={<Listagem />} />
             <Route path="/entrar" element={<Entrar />} />
             <Route path="/cadastro" element={<Cadastro />} />
-            <Route path="/meus-leiloes" element={<ExigeLogin><Listagem meus /></ExigeLogin>} />
-            <Route path="/leiloes/novo" element={<ExigeLogin><NovoLeilao /></ExigeLogin>} />
+            <Route
+              path="/meus-leiloes"
+              element={
+                <ExigeLogin>
+                  <Listagem meus />
+                </ExigeLogin>
+              }
+            />
+            <Route
+              path="/minhas-participacoes"
+              element={
+                <ExigeLogin>
+                  <MinhasParticipacoes />
+                </ExigeLogin>
+              }
+            />
+            <Route path="/comitentes" element={<BuscaComitentes />} />
+            <Route path="/comitentes/:id" element={<PerfilDoComitente />} />
+            <Route
+              path="/leiloes/novo"
+              element={
+                <ExigeLogin>
+                  <NovoLeilao />
+                </ExigeLogin>
+              }
+            />
             <Route path="/leiloes/:id" element={<Detalhe />} />
-            <Route path="/leiloes/:id/sala" element={<ExigeLogin><Sala /></ExigeLogin>} />
-            <Route path="*" element={<p className="text-slate-600">Página não encontrada.</p>} />
+            <Route
+              path="/leiloes/:id/editar"
+              element={
+                <ExigeLogin>
+                  <EditarLeilao />
+                </ExigeLogin>
+              }
+            />
+            <Route
+              path="/leiloes/:id/relistar"
+              element={
+                <ExigeLogin>
+                  <RelistarLeilao />
+                </ExigeLogin>
+              }
+            />
+            <Route
+              path="/leiloes/:id/sala"
+              element={
+                <ExigeLogin>
+                  <Sala />
+                </ExigeLogin>
+              }
+            />
+            <Route path="*" element={<NaoEncontrado />} />
           </Routes>
         </main>
+        <Rodape />
       </ProvedorSessao>
     </BrowserRouter>
   </StrictMode>,
