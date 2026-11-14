@@ -82,6 +82,23 @@ Uma casa de leilões que parece uma casa de leilões, não um dashboard genéric
 - **Sem crédito**, a sala coloca a pessoa como espectadora e mostra o aviso do servidor; tentar virar participante exibe o motivo e o disponível, sem trocar o papel.
 - **Minhas participações** mostra o total reservado nos leilões em que o usuário lidera e o disponível.
 
+### Minha conta (pontuação, crédito e compras)
+
+- Página `/minha-conta`, aberta pela pontuação no cabeçalho.
+- **Anel de pontuação** com a marca do mínimo para vender e as quatro parcelas do RF29 em barras (renda, tempo de conta, compras, total comprado), com os tetos de cada uma.
+- **Crédito** em bloco escuro: disponível, limite, reservado e a regra em uma frase.
+- **Liderando agora** (reservas) e **Histórico de compras**, vindos de `GET /api/eu/compras`.
+- "Quero vender" aparece aqui quando a pontuação permite; abaixo do mínimo, diz quantos pontos faltam.
+
+### Sensação de "ao vivo"
+
+- Selo **Ao vivo** com ponto pulsante e **barra de tempo** nos cartões, no destaque e na sala; a barra fica vermelha no último minuto.
+- Na sala, o preço se destaca a cada novo lance, uma faixa diz se você **está na frente** ou se **cobriram seu lance** (com o valor para voltar), e um gráfico mostra a evolução do preço nos últimos lances.
+- O formulário de lance mostra o crédito em barra: reservado em outros leilões, este lance e o limite.
+- Cada lance novo entra na lista com animação; o da frente leva a etiqueta "na frente".
+- Catálogo com fichas de categoria com ícone, chamada no hover do cartão e a faixa "Como funciona" com as três garantias.
+- Fotos de demonstração: o seed desenha a silhueta de cada item em cena de estúdio (`backend/src/png.ts`), em três enquadramentos.
+
 ### Conta
 
 - Split screen: painel escuro com a proposta e fatos do produto; formulário branco.

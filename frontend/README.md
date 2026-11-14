@@ -47,6 +47,7 @@ frontend/
 │   ├── GerenciarLeilao.tsx # carrega o leilão e aplica a política de edição
 │   ├── Comitentes.tsx  # busca e perfil público de comitentes
 │   ├── Participacoes.tsx # "Minhas participações" e situação em cada leilão
+│   ├── MinhaConta.tsx  # pontuação (RF29), crédito, reservas e histórico de compras
 │   ├── Conta.tsx       # entrar/cadastrar e contas de demonstração
 │   └── estilo.css      # tokens, identidade visual, layout e responsivo
 ├── DESIGN.md           # decisões de design e sistema visual

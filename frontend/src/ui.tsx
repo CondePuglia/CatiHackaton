@@ -23,6 +23,7 @@ import {
   ArrowLeft,
   ArrowRight,
   Catalog,
+  ChartLineSmooth,
   ChevronLeft,
   ChevronRight,
   Image as ImageIcon,
@@ -244,12 +245,12 @@ export function Cabecalho() {
         <RelogioServidor />
         {usuario ? (
           <>
-            <span className="topo__pontuacao" title="Pontuação da conta">
-              {usuario.pontuacao} pts
-            </span>
-            <span className="topo__usuario" title={usuario.email}>
-              {usuario.nome}
-            </span>
+            <Link className="topo__conta" to="/minha-conta" title="Minha conta: pontuação, crédito e compras">
+              <span className="topo__pontuacao">
+                <b>{usuario.pontuacao}</b> pts
+              </span>
+              <span className="topo__usuario">{usuario.nome}</span>
+            </Link>
             <HeaderGlobalAction aria-label="Sair da conta" onClick={() => void sair()} tooltipAlignment="end">
               <Logout size={20} />
             </HeaderGlobalAction>
@@ -319,7 +320,14 @@ export function Cabecalho() {
                   {queroVender.carregando ? 'Verificando…' : 'Quero vender'}
                 </SideNavLink>
               )}
-              <li className="topo__menu-pontuacao">Pontuação: {usuario.pontuacao} de 100</li>
+              <SideNavLink
+                as={Link}
+                to="/minha-conta"
+                isActive={local.pathname === '/minha-conta'}
+                onClick={() => setMenuAberto(false)}
+              >
+                Minha conta · {usuario.pontuacao} pts
+              </SideNavLink>
             </>
           )}
           {!usuario && (
@@ -349,6 +357,7 @@ export function Rodape() {
           <Link to="/comitentes">Comitentes</Link>
           <Link to="/meus-leiloes">Meus leilões</Link>
           <Link to="/minhas-participacoes">Participações</Link>
+          <Link to="/minha-conta">Minha conta</Link>
           <Link to="/leiloes/novo">Anunciar item</Link>
         </nav>
         <div className="rodape__estado" role="status">
@@ -484,9 +493,35 @@ export function EsqueletoCartao() {
   );
 }
 
+/**
+ * Quanto do leilão já passou, de 0 a 1, pelo relógio do servidor. É só visual:
+ * com prorrogação o término anda e a barra recua um pouco.
+ */
+export function useDecorrido(inicioEm: string, terminoEm: string): number {
+  const agora = useAgora();
+  const inicio = new Date(inicioEm).getTime();
+  const fim = new Date(terminoEm).getTime();
+  if (fim <= inicio) return 1;
+  return Math.max(0, Math.min(1, (agora - inicio) / (fim - inicio)));
+}
+
+/** Barra fina de tempo: enche até o término e fica vermelha no último minuto. */
+export function BarraTempo({ inicioEm, terminoEm, inversa = false }: { inicioEm: string; terminoEm: string; inversa?: boolean }) {
+  const agora = useAgora();
+  const decorrido = useDecorrido(inicioEm, terminoEm);
+  const restante = new Date(terminoEm).getTime() - agora;
+  const urgente = restante > 0 && restante < 60_000;
+  return (
+    <span className={`tempo-barra${inversa ? ' tempo-barra--inversa' : ''}${urgente ? ' tempo-barra--urgente' : ''}`} aria-hidden="true">
+      <span style={{ width: `${decorrido * 100}%` }} />
+    </span>
+  );
+}
+
 export function CartaoLeilao({ leilao, prioridade = false }: { leilao: Resumo; prioridade?: boolean }) {
   const info = infoStatus(leilao.status);
   const preco = leilao.precoAtualCentavos ?? leilao.precoInicialCentavos;
+  const aoVivo = leilao.status === 'EM_ANDAMENTO';
   return (
     <Link
       to={`/leiloes/${leilao.id}`}
@@ -508,16 +543,33 @@ export function CartaoLeilao({ leilao, prioridade = false }: { leilao: Resumo; p
           </span>
         )}
         <span className="cartao__selo">
-          <Selo status={leilao.status} />
+          {aoVivo ? (
+            <span className="selo-vivo">
+              <span className="selo-vivo__ponto" aria-hidden="true" />
+              Ao vivo
+            </span>
+          ) : (
+            <Selo status={leilao.status} />
+          )}
         </span>
+        {!info.final && (
+          <span className="cartao__chamada" aria-hidden="true">
+            {aoVivo ? 'Entrar na disputa' : 'Ver leilão'} <ArrowRight size={16} />
+          </span>
+        )}
+        {aoVivo && <BarraTempo inicioEm={leilao.inicioEm} terminoEm={leilao.terminoEm} />}
       </div>
       <div className="cartao__corpo">
         <p className="cartao__categoria">{leilao.item.categoriaNome}</p>
         <h3 className="cartao__titulo">{leilao.item.nome}</h3>
+        <p className="cartao__preco-rotulo">
+          {leilao.status === 'VENDIDO' ? 'Vendido por' : leilao.totalLances > 0 ? 'Lance atual' : 'Lance inicial'}
+        </p>
         <p className="cartao__preco">{reais(preco)}</p>
         <div className="cartao__meta">
           <Contador status={leilao.status} inicioEm={leilao.inicioEm} terminoEm={leilao.terminoEm} />
-          <span>
+          <span className="cartao__lances">
+            <ChartLineSmooth size={14} aria-hidden="true" />
             {leilao.totalLances} {leilao.totalLances === 1 ? 'lance' : 'lances'}
           </span>
         </div>

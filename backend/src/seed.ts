@@ -3,7 +3,7 @@ import { aguardarArmazenamento, salvarObjeto } from './armazenamento.js';
 import { config } from './config.js';
 import { aguardarBanco, pool, transacao } from './db.js';
 import { migrar } from './migrar.js';
-import { fotoDeDemonstracao, type Cor } from './png.js';
+import { fotoDeDemonstracao, type Cor, type Figura } from './png.js';
 
 /**
  * RNF04 — dados de demonstração: 1 comitente, 3 compradores e um leilão em cada
@@ -35,6 +35,7 @@ type Modelo = {
   descricao: string;
   categoria: string;
   cor: Cor;
+  figura: Figura;
   preco: number;
   status: 'AGENDADO' | 'EM_ANDAMENTO' | 'VENDIDO' | 'ENCERRADO_SEM_LANCES' | 'CANCELADO';
   /** minutos em relação a agora */
@@ -48,39 +49,39 @@ const LEILOES: Modelo[] = [
   {
     nome: 'Violão clássico de luthier',
     descricao: 'Violão de cedro maciço, feito à mão em 2019. Acompanha estojo rígido.',
-    categoria: 'arte', cor: [180, 110, 60], preco: 1_200_00, status: 'AGENDADO', inicio: 10, termino: 40,
+    categoria: 'arte', cor: [180, 110, 60], figura: 'violao', preco: 1_200_00, status: 'AGENDADO', inicio: 10, termino: 40,
   },
   {
     nome: 'Bicicleta de estrada aro 700',
     descricao: 'Quadro de alumínio tamanho 54, grupo de 22 marchas, revisada este mês.',
-    categoria: 'esportes', cor: [40, 140, 200], preco: 800_00, status: 'EM_ANDAMENTO', inicio: -5, termino: 25,
+    categoria: 'esportes', cor: [40, 140, 200], figura: 'bicicleta', preco: 800_00, status: 'EM_ANDAMENTO', inicio: -5, termino: 25,
   },
   {
     nome: 'Câmera analógica anos 70',
     descricao: 'Câmera reflex 35 mm funcionando, com lente 50 mm e estojo de couro original.',
-    categoria: 'eletronicos', cor: [90, 90, 110], preco: 300_00, status: 'EM_ANDAMENTO', inicio: -10, termino: 15,
+    categoria: 'eletronicos', cor: [90, 90, 110], figura: 'camera', preco: 300_00, status: 'EM_ANDAMENTO', inicio: -10, termino: 15,
     lances: [{ quem: 1, valor: 300_00 }, { quem: 2, valor: 320_00 }, { quem: 1, valor: 350_00 }],
   },
   {
     nome: 'Carro sedã 2019 completo',
     descricao: 'Sedã 2019 com 48 mil km, único dono, revisões na concessionária e manual do proprietário.',
-    categoria: 'veiculos', cor: [200, 60, 60], preco: 50_000_00, status: 'EM_ANDAMENTO', inicio: -3, termino: 45,
+    categoria: 'veiculos', cor: [200, 60, 60], figura: 'carro', preco: 50_000_00, status: 'EM_ANDAMENTO', inicio: -3, termino: 45,
   },
   {
     nome: 'Poltrona de couro restaurada',
     descricao: 'Poltrona dos anos 60 com couro legítimo restaurado e estrutura em jacarandá.',
-    categoria: 'casa', cor: [130, 70, 50], preco: 500_00, status: 'VENDIDO', inicio: -180, termino: -120,
+    categoria: 'casa', cor: [130, 70, 50], figura: 'poltrona', preco: 500_00, status: 'VENDIDO', inicio: -180, termino: -120,
     lances: [{ quem: 2, valor: 500_00 }, { quem: 3, valor: 560_00 }, { quem: 2, valor: 600_00 }, { quem: 3, valor: 650_00 }],
   },
   {
     nome: 'Coleção de vinis de MPB',
     descricao: 'Trinta discos de vinil de MPB dos anos 70 e 80, todos com capa e encarte.',
-    categoria: 'arte', cor: [150, 60, 150], preco: 400_00, status: 'ENCERRADO_SEM_LANCES', inicio: -300, termino: -240,
+    categoria: 'arte', cor: [150, 60, 150], figura: 'vinil', preco: 400_00, status: 'ENCERRADO_SEM_LANCES', inicio: -300, termino: -240,
   },
   {
     nome: 'Relógio de pulso automático',
     descricao: 'Relógio automático com caixa de aço de 40 mm e pulseira de couro. Com caixa e manual.',
-    categoria: 'moda', cor: [60, 150, 110], preco: 900_00, status: 'CANCELADO', inicio: 120, termino: 180,
+    categoria: 'moda', cor: [60, 150, 110], figura: 'relogio', preco: 900_00, status: 'CANCELADO', inicio: 120, termino: 180,
   },
 ];
 
@@ -122,7 +123,7 @@ async function principal(): Promise<void> {
     const chaves: string[] = [];
     for (let v = 0; v < 3; v++) {
       const chave = `${config.armazenamento.prefixo}/demo-${Date.now()}-${n}-${v}.png`;
-      const dados = fotoDeDemonstracao(m.cor, v);
+      const dados = fotoDeDemonstracao(m.cor, v, 800, 600, m.figura);
       await salvarObjeto(chave, dados, 'image/png');
       chaves.push(`${chave}|${dados.length}`);
     }

@@ -1,7 +1,21 @@
 import { useEffect, useMemo, useState } from 'react';
 import { Link, useSearchParams } from 'react-router-dom';
-import { Button, Dropdown, Pagination, Search } from '@carbon/react';
-import { ArrowRight } from '@carbon/icons-react';
+import { Button, Pagination, Search } from '@carbon/react';
+import {
+  ArrowRight,
+  Basketball,
+  Building,
+  Car,
+  Category,
+  ColorPalette,
+  Flash,
+  Home,
+  Hourglass,
+  Laptop,
+  Security,
+  ShoppingBag,
+  Tag as IconeTag,
+} from '@carbon/icons-react';
 import {
   api,
   reais,
@@ -14,6 +28,7 @@ import {
 import {
   AcaoAnunciar,
   Aviso,
+  BarraTempo,
   CartaoLeilao,
   EsqueletoCartao,
   EstadoVazio,
@@ -32,6 +47,58 @@ const FILTROS: Array<{ id: Filtro; rotulo: string; status: string | null }> = [
   { id: 'TODOS', rotulo: 'Todos', status: 'TODOS' },
 ];
 
+const ICONE_CATEGORIA: Record<string, typeof Category> = {
+  '': Category,
+  eletronicos: Laptop,
+  veiculos: Car,
+  imoveis: Building,
+  arte: ColorPalette,
+  casa: Home,
+  moda: ShoppingBag,
+  esportes: Basketball,
+  outros: IconeTag,
+};
+
+/** As três garantias que a banca vai testar, ditas em língua de gente. */
+function ComoFunciona() {
+  return (
+    <section className="como" aria-labelledby="titulo-como">
+      <h2 id="titulo-como" className="sr-only">
+        Como funciona
+      </h2>
+      <ol className="como__passos">
+        <li>
+          <span className="como__icone">
+            <Flash size={24} aria-hidden="true" />
+          </span>
+          <div>
+            <h3>Lances ao vivo</h3>
+            <p>Todos na sala veem o mesmo preço na hora. Se dois lances chegam juntos, vale o primeiro.</p>
+          </div>
+        </li>
+        <li>
+          <span className="como__icone">
+            <Hourglass size={24} aria-hidden="true" />
+          </span>
+          <div>
+            <h3>Sem lance de último segundo</h3>
+            <p>Um lance perto do fim prorroga o término, para todo mundo ter chance de responder.</p>
+          </div>
+        </li>
+        <li>
+          <span className="como__icone">
+            <Security size={24} aria-hidden="true" />
+          </span>
+          <div>
+            <h3>Crédito e fechamento automáticos</h3>
+            <p>Você só disputa o que seu crédito cobre, e o leilão abre e fecha sozinho pelo relógio do servidor.</p>
+          </div>
+        </li>
+      </ol>
+    </section>
+  );
+}
+
 function Destaque({ leilao }: { leilao: Resumo }) {
   const agora = useAgora();
   const aoVivo = leilao.status === 'EM_ANDAMENTO';
@@ -47,7 +114,14 @@ function Destaque({ leilao }: { leilao: Resumo }) {
       <span className="destaque__sobrepor" aria-hidden="true" />
       <span className="destaque__conteudo">
         <span className="destaque__topo">
-          <Selo status={leilao.status} />
+          {aoVivo ? (
+            <span className="selo-vivo">
+              <span className="selo-vivo__ponto" aria-hidden="true" />
+              Ao vivo
+            </span>
+          ) : (
+            <Selo status={leilao.status} />
+          )}
           <span>{leilao.item.categoriaNome}</span>
         </span>
         <span className="destaque__rotulo">{aoVivo ? 'Encerra em' : 'Abre em'}</span>
@@ -55,8 +129,16 @@ function Destaque({ leilao }: { leilao: Resumo }) {
           {restante <= 0 ? 'Encerrando…' : tempoPreciso(restante)}
         </span>
         <span className="destaque__nome">{leilao.item.nome}</span>
+        {aoVivo && <BarraTempo inicioEm={leilao.inicioEm} terminoEm={leilao.terminoEm} inversa />}
         <span className="destaque__rodape">
-          <span className="destaque__preco">{reais(leilao.precoAtualCentavos ?? leilao.precoInicialCentavos)}</span>
+          <span className="destaque__preco">
+            <small>
+              {leilao.totalLances > 0
+                ? `${leilao.totalLances} ${leilao.totalLances === 1 ? 'lance' : 'lances'} · lance atual`
+                : 'Lance inicial'}
+            </small>
+            {reais(leilao.precoAtualCentavos ?? leilao.precoInicialCentavos)}
+          </span>
           <span className="destaque__acao">
             Ver leilão <ArrowRight size={16} aria-hidden="true" />
           </span>
@@ -236,6 +318,8 @@ export function Listagem({ meus = false }: { meus?: boolean }) {
         </section>
       )}
 
+      {!meus && <ComoFunciona />}
+
       <section id="catalogo" className="catalogo" aria-labelledby="titulo-catalogo">
         <div className="catalogo__cabecalho">
           <div>
@@ -275,20 +359,30 @@ export function Listagem({ meus = false }: { meus?: boolean }) {
                 onClear={() => setTextoBusca('')}
               />
             </div>
-            <div className="filtros__categoria">
-              <Dropdown
-                id="filtro-categoria"
-                titleText="Categoria"
-                label="Todas as categorias"
-                items={categorias}
-                itemToString={(item) => (item ? item.nome : '')}
-                selectedItem={categoriaSelecionada}
-                onChange={({ selectedItem }) => atualizar({ categoria: selectedItem?.id || null, pagina: null })}
-              />
-            </div>
             <p className="filtros__total" role="status">
               {dados ? `${dados.total} ${dados.total === 1 ? 'leilão' : 'leilões'}` : 'Carregando…'}
             </p>
+          </div>
+        )}
+
+        {!meus && (
+          <div className="categorias" role="group" aria-label="Filtrar por categoria">
+            {categorias.map((c) => {
+              const Icone = ICONE_CATEGORIA[c.id] ?? IconeTag;
+              const ativa = c.id === categoriaSelecionada.id;
+              return (
+                <button
+                  key={c.id || 'todas'}
+                  type="button"
+                  className={`categoria${ativa ? ' categoria--ativa' : ''}`}
+                  aria-pressed={ativa}
+                  onClick={() => atualizar({ categoria: c.id || null, pagina: null })}
+                >
+                  <Icone size={20} aria-hidden="true" />
+                  {c.id ? c.nome : 'Todas'}
+                </button>
+              );
+            })}
           </div>
         )}
 

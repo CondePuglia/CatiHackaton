@@ -18,6 +18,7 @@ import { Detalhe } from './Detalhe';
 import { EditarLeilao, RelistarLeilao } from './GerenciarLeilao';
 import { Listagem } from './Listagem';
 import { MinhasParticipacoes } from './Participacoes';
+import { MinhaConta } from './MinhaConta';
 import { NovoLeilao } from './NovoLeilao';
 import { Sala } from './Sala';
 
@@ -83,6 +84,14 @@ createRoot(document.getElementById('root')!).render(
               element={
                 <ExigeLogin>
                   <MinhasParticipacoes />
+                </ExigeLogin>
+              }
+            />
+            <Route
+              path="/minha-conta"
+              element={
+                <ExigeLogin>
+                  <MinhaConta />
                 </ExigeLogin>
               }
             />

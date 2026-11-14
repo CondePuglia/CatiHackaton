@@ -1,7 +1,7 @@
 import { useEffect, useRef, useState, type FormEvent } from 'react';
 import { Link, useParams } from 'react-router-dom';
 import { Button, Tag, TextInput } from '@carbon/react';
-import { ArrowRight, Renew, Time, Trophy, User, View } from '@carbon/icons-react';
+import { ArrowRight, ArrowUp, Renew, Time, Trophy, User, View, WarningAltFilled } from '@carbon/icons-react';
 import { io, type Socket } from 'socket.io-client';
 import {
   acertarRelogio,
@@ -20,7 +20,7 @@ import {
   type EstadoSala,
   type Leilao,
 } from './comuns';
-import { Aviso, GaleriaFotos, Selo, VoltarLink } from './ui';
+import { Aviso, BarraTempo, GaleriaFotos, Selo, VoltarLink } from './ui';
 import { TextoResultado } from './Detalhe';
 
 type Retorno = { tipo: 'ok' | 'erro' | 'info'; texto: string; detalhe?: string; titulo?: string };
@@ -32,6 +32,36 @@ function novaChave(): string {
   const bytes = new Uint8Array(16);
   c.getRandomValues(bytes);
   return Array.from(bytes, (b) => b.toString(16).padStart(2, '0')).join('');
+}
+
+/** Evolução do preço nos últimos lances, do mais antigo ao mais novo. */
+function Evolucao({ lances, inicial }: { lances: EstadoSala['ultimosLances']; inicial: number }) {
+  if (lances.length < 2) return null;
+  const valores = [...lances].sort((x, y) => x.sequencia - y.sequencia).map((l) => l.valorCentavos);
+  const min = Math.min(...valores);
+  const max = Math.max(...valores);
+  const L = 300;
+  const A = 56;
+  const x = (i: number) => (i / (valores.length - 1)) * L;
+  const y = (v: number) => (max === min ? A / 2 : A - 6 - ((v - min) / (max - min)) * (A - 12));
+  const linha = valores.map((v, i) => `${i === 0 ? 'M' : 'L'}${x(i).toFixed(1)},${y(v).toFixed(1)}`).join(' ');
+  const primeiro = valores[0];
+  const alta = primeiro > 0 ? ((max - Math.min(primeiro, inicial)) / Math.min(primeiro, inicial)) * 100 : 0;
+  return (
+    <div className="evolucao">
+      <div className="evolucao__topo">
+        <span>Preço nos últimos {valores.length} lances</span>
+        <span className="evolucao__alta">
+          <ArrowUp size={12} aria-hidden="true" />
+          {alta.toLocaleString('pt-BR', { maximumFractionDigits: 1 })}% sobre o inicial
+        </span>
+      </div>
+      <svg viewBox={`0 0 ${L} ${A}`} preserveAspectRatio="none" role="img" aria-label="Gráfico da evolução do preço">
+        <path d={`${linha} L${L},${A} L0,${A} Z`} className="evolucao__area" />
+        <path d={linha} className="evolucao__linha" vectorEffect="non-scaling-stroke" />
+      </svg>
+    </div>
+  );
 }
 
 function SkeletonSala() {
@@ -296,6 +326,12 @@ export function Sala() {
   const quem = (numero: number, apelido: string) => (numero === eu.numero ? `${apelido} (você)` : apelido);
   const incremento = preco !== null && config ? incrementoAtual(preco, config.incrementos) : 0;
   const rapidos = minimo !== null && incremento > 0 ? [minimo, minimo + incremento, minimo + incremento * 2] : [];
+  // já dei lance aqui e alguém passou na frente
+  const fuiSuperado = aberto && !souLider && eu.numero !== null && estado.ultimosLances.some((l) => l.numero === eu.numero);
+  const limite = credito?.limiteCentavos ?? 0;
+  const reservadoPct = limite > 0 && credito ? Math.min(100, (credito.reservadoCentavos / limite) * 100) : 0;
+  const lancePct =
+    limite > 0 && valorCentavos !== null && !souLider ? Math.min(100 - reservadoPct, (valorCentavos / limite) * 100) : 0;
 
   return (
     <div className="pagina sala">
@@ -363,7 +399,11 @@ export function Sala() {
         </section>
 
         <section className="sala__lado" aria-label="Disputa ao vivo">
-          <div className={`sala__painel${urgente ? ' sala__painel--urgente' : ''}`}>
+          <div
+            className={`sala__painel${urgente ? ' sala__painel--urgente' : ''}${
+              aberto && souLider ? ' sala__painel--lider' : ''
+            }${fuiSuperado ? ' sala__painel--superado' : ''}`}
+          >
             <div className="sala__status">
               <Selo status={estado.status} />
               <span className={conectado ? 'status-vivo' : 'status-reconectando'} role="status">
@@ -375,7 +415,21 @@ export function Sala() {
             <p className="sala__painel-nome">{item?.item.nome ?? 'Leilão ao vivo'}</p>
 
             <p className="sala__rotulo">{estado.precoAtualCentavos === null ? 'Preço inicial' : 'Preço atual'}</p>
-            <p className="sala__preco">{preco !== null ? reais(preco) : '—'}</p>
+            {/* a chave refaz o elemento a cada novo preço: é o que dispara o destaque */}
+            <p key={preco ?? 'sem'} className={`sala__preco${estado.totalLances > 0 ? ' sala__preco--novo' : ''}`}>
+              {preco !== null ? reais(preco) : '—'}
+            </p>
+
+            {aberto && souLider && (
+              <p className="sala__posicao sala__posicao--lider">
+                <Trophy size={16} aria-hidden="true" /> Você está na frente
+              </p>
+            )}
+            {fuiSuperado && minimo !== null && (
+              <p className="sala__posicao sala__posicao--superado">
+                <WarningAltFilled size={16} aria-hidden="true" /> Cobriram seu lance. Para voltar à frente: {reais(minimo)}
+              </p>
+            )}
 
             <div className="sala__tempo">
               <span>{estado.status === 'AGENDADO' ? 'Abre em' : 'Termina em'}</span>
@@ -389,6 +443,8 @@ export function Sala() {
                     : '—'}
               </strong>
             </div>
+
+            {aberto && <BarraTempo inicioEm={estado.inicioEm} terminoEm={estado.terminoEm} inversa />}
 
             <dl className="sala__stats">
               <div>
@@ -421,6 +477,8 @@ export function Sala() {
                 </span>
               </p>
             )}
+
+            <Evolucao lances={estado.ultimosLances} inicial={estado.precoInicialCentavos} />
 
             {estado.prorrogado && (
               <Tag type="warm-gray" size="sm" className="sala__prorrogado">
@@ -504,14 +562,36 @@ export function Sala() {
               </div>
 
               {credito && (
-                <p
+                <div
                   className={`lance__credito${
                     minimo !== null && credito.disponivelCentavos < minimo ? ' lance__credito--baixo' : ''
                   }`}
                 >
-                  Crédito disponível: <strong>{reais(credito.disponivelCentavos)}</strong>
-                  {minimo !== null && credito.disponivelCentavos < minimo && ' — não cobre o mínimo atual.'}
-                </p>
+                  <p>
+                    Crédito disponível: <strong>{reais(credito.disponivelCentavos)}</strong>
+                    {minimo !== null && credito.disponivelCentavos < minimo && ' — não cobre o mínimo atual.'}
+                    <Link className="link-inline lance__credito-link" to="/minha-conta">
+                      Ver crédito
+                    </Link>
+                  </p>
+                  {limite > 0 && (
+                    <>
+                      <div className="barra barra--credito" aria-hidden="true">
+                        <span className="barra__valor barra__valor--reserva" style={{ width: `${reservadoPct}%` }} />
+                        <span className="barra__valor barra__valor--lance" style={{ width: `${lancePct}%` }} />
+                      </div>
+                      <p className="lance__credito-legenda">
+                        <span>
+                          <i className="ponto ponto--reserva" aria-hidden="true" /> reservado em outros lances
+                        </span>
+                        <span>
+                          <i className="ponto ponto--lance" aria-hidden="true" /> este lance
+                        </span>
+                        <span>limite {reais(limite)}</span>
+                      </p>
+                    </>
+                  )}
+                </div>
               )}
 
               <TextInput
@@ -587,11 +667,21 @@ export function Sala() {
               <p className="lances__vazio">Nenhum lance ainda. O primeiro pode ser igual ao preço inicial.</p>
             ) : (
               <ol className="lances__lista">
-                {estado.ultimosLances.map((l) => (
-                  <li key={l.sequencia} className={l.numero === eu.numero ? 'lances__linha lances__linha--eu' : 'lances__linha'}>
+                {estado.ultimosLances.map((l, i) => (
+                  <li
+                    key={l.sequencia}
+                    className={`lances__linha${l.numero === eu.numero ? ' lances__linha--eu' : ''}${
+                      i === 0 ? ' lances__linha--lider' : ''
+                    }`}
+                  >
                     <span className="lances__pessoa">
                       <span className="lances__ordem">{l.sequencia}º</span>
                       {quem(l.numero, l.apelido)}
+                      {i === 0 && (
+                        <span className="lances__lider">
+                          <Trophy size={12} aria-hidden="true" /> na frente
+                        </span>
+                      )}
                     </span>
                     <span className="lances__valor">{reais(l.valorCentavos)}</span>
                     <span className="lances__hora">{hora(l.em)}</span>

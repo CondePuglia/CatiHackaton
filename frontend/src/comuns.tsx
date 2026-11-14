@@ -197,6 +197,7 @@ export type Usuario = {
   comitente: boolean;
   /** RF29: pontuação de 0 a 100. */
   pontuacao: number;
+  criadoEm?: string;
 };
 
 export type Credito = {
@@ -204,6 +205,20 @@ export type Credito = {
   limiteCentavos: number;
   reservadoCentavos: number;
   disponivelCentavos: number;
+  /** Parcelas da pontuação (RF29); vêm do servidor junto com o crédito. */
+  rendaMensalCentavos?: number;
+  diasDeConta?: number;
+  compras?: number;
+  totalCompradoCentavos?: number;
+  pontuacaoMinimaComitente?: number;
+};
+
+export type Compra = { leilaoId: number; itemNome: string; valorCentavos: number; em: string };
+export type HistoricoCompras = {
+  compras: Compra[];
+  reservas: Compra[];
+  totalCompradoCentavos: number;
+  reservadoCentavos: number;
 };
 type Sessao = {
   /** undefined = ainda carregando; null = visitante */
