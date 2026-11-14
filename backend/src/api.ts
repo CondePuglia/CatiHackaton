@@ -1,15 +1,15 @@
 import { aguardarArmazenamento } from './armazenamento.js';
 import { config } from './config.js';
 import { aguardarBanco, pool } from './db.js';
+import { escutarEventos } from './eventos.js';
 import { criarApp } from './http.js';
 import { migrar } from './migrar.js';
+import { iniciarTempoReal } from './tempoReal.js';
 
 /**
- * Processo da API. Não guarda estado de leilão em memória; tudo o que importa
- * está no Postgres. Por isso pode reiniciar a qualquer momento (RF18).
- *
- * Nesta etapa (Núcleo · Parte 1) serve só HTTP. A sala em tempo real, por onde
- * entram os lances, é a Parte 2.
+ * Processo da API: HTTP + tempo real. Não guarda estado de leilão em memória;
+ * tudo o que importa está no Postgres. Por isso pode reiniciar a qualquer
+ * momento (RF18) e pode haver mais de uma instância rodando.
  */
 async function principal(): Promise<void> {
   await aguardarBanco();
@@ -18,6 +18,13 @@ async function principal(): Promise<void> {
   const app = await criarApp();
   await app.ready();
   if (aplicadas.length) app.log.info({ aplicadas }, 'migrações aplicadas');
+
+  const tempoReal = iniciarTempoReal(app);
+  const escuta = escutarEventos({
+    aoReceber: tempoReal.aoEvento,
+    aoReconectar: tempoReal.ressincronizar,
+  });
+  await escuta.pronto;
 
   // O bucket não bloqueia a subida: se o armazenamento demorar, só o upload espera.
   aguardarArmazenamento()
@@ -31,7 +38,10 @@ async function principal(): Promise<void> {
     if (encerrando) return;
     encerrando = true;
     app.log.info({ sinal }, 'encerrando');
+    // quem está nas salas reconecta sozinho assim que a API voltar
+    await tempoReal.encerrar().catch(() => {});
     await app.close().catch(() => {});
+    await escuta.parar().catch(() => {});
     await pool.end().catch(() => {});
     process.exit(0);
   };
