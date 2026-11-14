@@ -3,6 +3,7 @@ import { Server, type Socket } from 'socket.io';
 import { config } from './config.js';
 import type { EventoLeilao } from './eventos.js';
 import { CHAVE_VALIDA, MENSAGENS, darLance, lanceMinimoVigente, recusa, type ResultadoLance } from './lances.js';
+import { pool } from './db.js';
 import { estadoDaSala, vinculoComLeilao } from './leiloes.js';
 import { usarSessao, type Usuario } from './sessoes.js';
 import { idPositivo } from './validacao.js';
@@ -23,7 +24,11 @@ import { idPositivo } from './validacao.js';
  *    do banco depois do commit (RF11).
  */
 
-export type Papel = 'PARTICIPANTE' | 'COMITENTE';
+/**
+ * RF25: PARTICIPANTE pode dar lance; ESPECTADOR só assiste e pode virar
+ * participante sem sair da sala; COMITENTE é sempre espectador do próprio leilão.
+ */
+export type Papel = 'PARTICIPANTE' | 'ESPECTADOR' | 'COMITENTE';
 
 type DadosDoSocket = {
   usuario: Usuario;
@@ -74,8 +79,33 @@ export function iniciarTempoReal(app: FastifyInstance) {
   /** Quem perdeu a sessão recebe a resposta e só depois é desligado. */
   const desligar = (socket: SocketDaSala) => setTimeout(() => socket.disconnect(true), 100);
 
+  /**
+   * RF25: quantas PESSOAS (não abas) há na sala, por papel. Quem tem uma aba
+   * como participante e outra como espectador conta como participante.
+   */
+  function presenca(leilaoId: number, ignorar?: string) {
+    const participantes = new Set<number>();
+    const espectadores = new Set<number>();
+    for (const id of io.sockets.adapter.rooms.get(salaDoLeilao(leilaoId)) ?? []) {
+      if (id === ignorar) continue;
+      const s = io.sockets.sockets.get(id);
+      const papel = s?.data.salas?.get(leilaoId);
+      if (!s || !papel) continue;
+      (papel === 'PARTICIPANTE' ? participantes : espectadores).add(s.data.usuario.id);
+    }
+    for (const id of participantes) espectadores.delete(id);
+    return { leilaoId, participantes: participantes.size, espectadores: espectadores.size };
+  }
+  const avisarPresenca = (leilaoId: number, ignorar?: string) =>
+    io.to(salaDoLeilao(leilaoId)).emit('sala:presenca', presenca(leilaoId, ignorar));
+
   io.on('connection', (socket: SocketDaSala) => {
     const { usuario } = socket.data;
+
+    // ao cair, o socket ainda consta nas salas: descontamos ele da contagem
+    socket.on('disconnecting', () => {
+      for (const leilaoId of socket.data.salas.keys()) avisarPresenca(leilaoId, socket.id);
+    });
     void socket.join(salaDoUsuario(usuario.id));
 
     const tratar =
@@ -102,14 +132,38 @@ export function iniciarTempoReal(app: FastifyInstance) {
         const vinculo = await vinculoComLeilao(leilaoId, usuario.id);
         if (!vinculo.existe) return responder(falha('NAO_ENCONTRADO', 'Leilão não encontrado.'));
 
-        const papel: Papel = vinculo.souComitente ? 'COMITENTE' : 'PARTICIPANTE';
+        const papel: Papel = vinculo.souComitente
+          ? 'COMITENTE'
+          : dados.papel === 'ESPECTADOR'
+            ? 'ESPECTADOR'
+            : 'PARTICIPANTE';
         // Entra antes de ler o estado: nenhuma mudança cai no vão entre a
         // fotografia e a inscrição. Se chegar uma em dobro, a versão desempata.
         await socket.join(salaDoLeilao(leilaoId));
         socket.data.salas.set(leilaoId, papel);
 
         const estado = await estadoDaSala(leilaoId);
-        responder({ ok: true, estado, eu: { papel, numero: vinculo.numero } });
+        responder({ ok: true, estado, eu: { papel, numero: vinculo.numero }, presenca: presenca(leilaoId) });
+        avisarPresenca(leilaoId);
+      }),
+    );
+
+    // ---- RF25: trocar de papel sem sair da sala -----------------------------
+    socket.on(
+      'sala:papel',
+      tratar('sala:papel', async (dados, responder) => {
+        const leilaoId = idPositivo(dados.leilaoId);
+        const atual = leilaoId === null ? undefined : socket.data.salas.get(leilaoId);
+        if (leilaoId === null || !atual) return responder(falha('FORA_DA_SALA', MENSAGENS.FORA_DA_SALA));
+        if (atual === 'COMITENTE') {
+          return responder(falha('COMITENTE_NAO_PODE_DAR_LANCE', MENSAGENS.COMITENTE_NAO_PODE_DAR_LANCE));
+        }
+        if (dados.papel !== 'PARTICIPANTE' && dados.papel !== 'ESPECTADOR') {
+          return responder(falha('DADOS_INVALIDOS', 'Papel inválido.'));
+        }
+        socket.data.salas.set(leilaoId, dados.papel);
+        responder({ ok: true, eu: { papel: dados.papel } });
+        avisarPresenca(leilaoId);
       }),
     );
 
@@ -120,6 +174,7 @@ export function iniciarTempoReal(app: FastifyInstance) {
         if (leilaoId !== null) {
           socket.data.salas.delete(leilaoId);
           await socket.leave(salaDoLeilao(leilaoId));
+          avisarPresenca(leilaoId);
         }
         responder({ ok: true });
       }),
@@ -157,6 +212,9 @@ export function iniciarTempoReal(app: FastifyInstance) {
         if (!papel) return responder(recusa('FORA_DA_SALA', await lanceMinimoVigente(leilaoId)));
         if (papel === 'COMITENTE') {
           return responder(recusa('COMITENTE_NAO_PODE_DAR_LANCE', await lanceMinimoVigente(leilaoId)));
+        }
+        if (papel === 'ESPECTADOR') {
+          return responder(recusa('SOMENTE_ESPECTADOR', await lanceMinimoVigente(leilaoId)));
         }
         // 3) o resto das regras é decidido dentro da transação
         responder(await darLance({ usuarioId: usuario.id, leilaoId, valorCentavos, chave }));
@@ -209,6 +267,23 @@ export function iniciarTempoReal(app: FastifyInstance) {
     /** Chamado para cada evento confirmado no banco (ver eventos.ts). */
     aoEvento(evento: EventoLeilao): void {
       difundir(evento.leilaoId);
+      // a sala também é avisada de que a descrição mudou, para recarregar o item
+      if (evento.tipo === 'EDITADO') io.to(salaDoLeilao(evento.leilaoId)).emit('sala:item', { leilaoId: evento.leilaoId });
+      // RF26: quem liderava é avisado na hora, em qualquer página em que esteja
+      if (evento.tipo === 'LANCE' && evento.liderAnteriorId) {
+        const destino = salaDoUsuario(evento.liderAnteriorId);
+        if (!io.sockets.adapter.rooms.has(destino)) return;
+        void pool
+          .query('SELECT i.nome FROM leiloes l JOIN itens i ON i.id = l.item_id WHERE l.id = $1', [evento.leilaoId])
+          .then(({ rows }) =>
+            io.to(destino).emit('lance:superado', {
+              leilaoId: evento.leilaoId,
+              itemNome: rows[0]?.nome ?? '',
+              valorCentavos: evento.valorCentavos,
+            }),
+          )
+          .catch((erro) => app.log.error({ erro }, 'falha ao avisar lance superado'));
+      }
     },
 
     /** A escuta caiu e voltou: pode ter perdido eventos, então reenvia tudo o que há de sala aberta. */

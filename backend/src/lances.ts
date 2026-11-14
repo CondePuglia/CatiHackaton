@@ -134,6 +134,18 @@ export async function darLance(e: EntradaLance): Promise<ResultadoLance> {
       return { ...(original.resultado as ResultadoLance), reenvio: true };
     }
 
+    // 1b. limite de frequência (RF13) ---------------------------------------
+    // Vem DEPOIS da idempotência: reenviar a mesma tentativa nunca é punido.
+    // A trava é na linha do próprio usuário: pessoas diferentes não se bloqueiam.
+    const autor = await c.query('SELECT ultimo_lance_em FROM usuarios WHERE id = $1 FOR NO KEY UPDATE', [e.usuarioId]);
+    const instante = await agoraDoBanco(c);
+    const ultimo = autor.rows[0]?.ultimo_lance_em as Date | null | undefined;
+    if (ultimo && instante.getTime() - ultimo.getTime() < config.lances.intervaloMinimoMs) {
+      await desfazer(); // não chegou a ser avaliado: a tentativa não fica gravada
+      return recusa('MUITO_RAPIDO', await lanceMinimoVigente(e.leilaoId));
+    }
+    await c.query('UPDATE usuarios SET ultimo_lance_em = $2 WHERE id = $1', [e.usuarioId, instante]);
+
     // 2. fila por leilão ----------------------------------------------------
     const { rows } = await c.query(
       `SELECT comitente_id, status, preco_inicial_centavos, preco_atual_centavos,

@@ -4,7 +4,7 @@ import { agoraDoBanco, pool, transacao } from './db.js';
 import { ErroApp, conflito, naoEncontrado, proibido } from './erros.js';
 import { publicar } from './eventos.js';
 import { urlDaFoto } from './fotos.js';
-import { STATUS_ATIVOS, apelido, lanceMinimo, podeCancelar, type Status } from './regras.js';
+import { STATUS_ATIVOS, apelido, lanceMinimo, modoDeEdicao, podeCancelar, type Status } from './regras.js';
 import type { Usuario } from './sessoes.js';
 import { Validador, idPositivo, objeto } from './validacao.js';
 
@@ -248,6 +248,12 @@ function montarFiltro(f: FiltrosListagem): { onde: string; parametros: unknown[]
     parametros.push(f.comitenteId);
     onde.push(`l.comitente_id = $${parametros.length}`);
   }
+  const termo = f.q?.normalize('NFC').trim();
+  if (termo) {
+    // RF21: trecho do nome, sem diferenciar maiúsculas nem acentos
+    parametros.push(`%${termo.replace(/[\\%_]/g, '\\$&')}%`);
+    onde.push(`unaccent(i.nome) ILIKE unaccent($${parametros.length})`);
+  }
   return { onde: onde.join(' AND '), parametros };
 }
 
@@ -400,6 +406,15 @@ export async function detalharLeilao(id: number, usuario: Usuario | null) {
               { status: r.status, totalLances: r.total_lances, inicioEm: r.inicio_em, terminoEm: r.termino_em },
               r.agora,
             ),
+          // RF23: o que o comitente ainda pode mudar agora
+          edicao: souComitente
+            ? modoDeEdicao(
+                { status: r.status, totalLances: r.total_lances, inicioEm: r.inicio_em, terminoEm: r.termino_em },
+                r.agora,
+                config.edicao.bloqueioSegundos,
+              )
+            : 'NADA',
+          podeRelistar: souComitente && (r.status === 'ENCERRADO_SEM_LANCES' || r.status === 'CANCELADO'),
           // Só o comitente fica sabendo quem comprou, e só depois de vendido.
           vencedorNome: souComitente && r.status === 'VENDIDO' ? (r.lider_nome as string) : null,
         }

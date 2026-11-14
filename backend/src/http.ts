@@ -6,6 +6,7 @@ import { agoraDoBanco } from './db.js';
 import { ErroApp, naoAutenticado, naoEncontrado } from './erros.js';
 import { abrirFoto, enviarFoto } from './fotos.js';
 import { cancelarLeilao, criarLeilao, detalharLeilao, listarLeiloes } from './leiloes.js';
+import { buscarComitentes, editarLeilao, minhasParticipacoes, perfilDoComitente, relistarLeilao } from './nivel2.js';
 import { FAIXAS_INCREMENTO, STATUS, type Status } from './regras.js';
 import { criarSessao, encerrarSessao, usarSessao, type Usuario } from './sessoes.js';
 import { autenticar, cadastrar, usuarioPublico } from './usuarios.js';
@@ -218,6 +219,37 @@ export async function criarApp(): Promise<FastifyInstance> {
     const usuario = await exigirLogin(req);
     const q = req.query as Record<string, string | undefined>;
     return listarLeiloes({ comitenteId: usuario.id, status: [...STATUS], pagina: lerPagina(q.pagina) });
+  });
+
+  // -------------------------------------------------------------------------
+  // Nível 2
+  // -------------------------------------------------------------------------
+
+  /** RF23: edição conforme a política (ver `eu.edicao` no detalhe). */
+  app.patch('/api/leiloes/:id', async (req) => {
+    const usuario = await exigirLogin(req);
+    const id = lerId((req.params as { id: string }).id, 'Leilão');
+    await editarLeilao(usuario, id, req.body);
+    return { leilao: await detalharLeilao(id, usuario) };
+  });
+
+  /** RF28: novo leilão para o mesmo item. */
+  app.post('/api/leiloes/:id/relistar', async (req, reply) => {
+    const usuario = await exigirLogin(req);
+    const id = lerId((req.params as { id: string }).id, 'Leilão');
+    const novo = await relistarLeilao(usuario, id, req.body);
+    return reply.status(201).send({ leilao: await detalharLeilao(novo, usuario) });
+  });
+
+  /** RF27 */
+  app.get('/api/eu/participacoes', async (req) => minhasParticipacoes(await exigirLogin(req)));
+
+  /** RF22: busca e perfil público de comitentes. */
+  app.get('/api/comitentes', async (req) => buscarComitentes((req.query as Record<string, string | undefined>).q));
+
+  app.get('/api/comitentes/:id', async (req) => {
+    const id = lerId((req.params as { id: string }).id, 'Comitente');
+    return perfilDoComitente(id, lerPagina((req.query as Record<string, string | undefined>).pagina));
   });
 
   return app;

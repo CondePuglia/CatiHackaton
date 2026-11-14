@@ -85,4 +85,19 @@ export function podeCancelar(l: LeilaoParaPermissao, agora: Date): boolean {
   return l.status === 'EM_ANDAMENTO' && l.totalLances === 0 && agora.getTime() < l.terminoEm.getTime();
 }
 
+export type ModoEdicao = 'TUDO' | 'ACRESCENTAR_DESCRICAO' | 'NADA';
+
+/**
+ * RF23: quanto mais perto do início e quanto mais avançado o leilão, menos se
+ * pode mudar. Em andamento só dá para ACRESCENTAR texto à descrição: nada do
+ * que quem já deu lance leu pode sumir ou mudar.
+ */
+export function modoDeEdicao(l: LeilaoParaPermissao, agora: Date, bloqueioSegundos: number): ModoEdicao {
+  if (l.status === 'AGENDADO') {
+    return l.inicioEm.getTime() - agora.getTime() > bloqueioSegundos * 1000 ? 'TUDO' : 'NADA';
+  }
+  if (l.status === 'EM_ANDAMENTO' && agora.getTime() < l.terminoEm.getTime()) return 'ACRESCENTAR_DESCRICAO';
+  return 'NADA';
+}
+
 export const apelido = (numero: number): string => `Participante ${numero}`;
