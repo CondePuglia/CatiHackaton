@@ -1,0 +1,17 @@
+# Única porta de entrada: serve as telas e encaminha /api e /socket.io para a API.
+# SITE_ADDRESS=:80 serve em HTTP; com um domínio (ex.: leilao.exemplo.com) o Caddy
+# emite o certificado e serve em HTTPS sozinho.
+{$SITE_ADDRESS::80} {
+	encode gzip
+
+	@backend path /api/* /socket.io/*
+	handle @backend {
+		reverse_proxy api:3000
+	}
+
+	handle {
+		root * /srv
+		try_files {path} /index.html
+		file_server
+	}
+}
