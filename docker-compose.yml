@@ -1,0 +1,69 @@
+# Leilão online — tudo o que roda na VM.
+#
+#   cp .env.example .env && docker compose up -d --build
+#
+# Nesta etapa (Núcleo · Parte 1) a API publica a porta direto. Quando as telas
+# entrarem (Parte 3), quem publica a porta passa a ser o proxy (Caddy) e a API
+# volta a ficar só na rede interna. Banco e worker nunca ficam expostos.
+# Nenhum serviço usa bind mount: a mesma definição funciona apontando o Docker
+# para a VM por SSH.
+
+name: leilao
+
+x-backend: &backend
+  build:
+    context: ./backend
+    target: prod
+  restart: unless-stopped
+  env_file: ${ARQUIVO_ENV:-.env}
+  environment:
+    PORT: "3000"
+    DATABASE_URL: ${DATABASE_URL:-postgres://leilao:${POSTGRES_PASSWORD:-leilao}@db:5432/leilao}
+  depends_on:
+    db:
+      condition: service_healthy
+
+services:
+  db:
+    image: postgres:16-alpine
+    restart: unless-stopped
+    environment:
+      POSTGRES_USER: leilao
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:-leilao}
+      POSTGRES_DB: leilao
+    volumes:
+      - dados_banco:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U leilao -d leilao"]
+      interval: 2s
+      timeout: 3s
+      retries: 30
+
+  # S3 local, só para desenvolvimento (perfil "local"). Quando o serviço de
+  # armazenamento da organização for conhecido, as fotos vão para ele e este
+  # contêiner nem sobe.
+  minio:
+    image: cgr.dev/chainguard/minio:latest
+    profiles: ["local"]
+    restart: unless-stopped
+    user: "0:0"
+    command: ["server", "/data"]
+    environment:
+      MINIO_ROOT_USER: ${AWS_ACCESS_KEY_ID:-minioadmin}
+      MINIO_ROOT_PASSWORD: ${AWS_SECRET_ACCESS_KEY:-minioadmin123}
+    volumes:
+      - dados_fotos_local:/data
+
+  api:
+    <<: *backend
+    command: ["node", "dist/api.js"]
+    ports:
+      - "${PORTA_PUBLICA:-8080}:3000"
+
+  worker:
+    <<: *backend
+    command: ["node", "dist/worker.js"]
+
+volumes:
+  dados_banco:
+  dados_fotos_local:
